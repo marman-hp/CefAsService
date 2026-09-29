@@ -267,6 +267,17 @@ a paid service that streams H.264 may need your own H.264 patent license
 (Via LA) - that is the operator's responsibility.
 
 
+HARDWARE
+--------
+* Server CPU: OpenH264 encodes in software, one encoder per streaming
+  session. From our testing: 6 cores minimum, 8 or more recommended -
+  more for several sessions at once or high resolutions.
+* Server GPU: not needed (Disable GPU is on by default).
+* Viewers: a browser with hardware H.264 decoding (any normal PC or phone)
+  is smoothest. In a VM or without a GPU it decodes in software - it
+  works, just slower.
+
+
 FIRST RUN - WHAT WINDOWS WILL ASK
 ---------------------------------
 * Windows Security Alert (firewall) for Xilium.CefGlue.Broker and

@@ -37,6 +37,18 @@ and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Ad
 The release is self-contained: no .NET installation is needed. Its `README.txt` lists every port and
 first-run prompt.
 
+## Hardware
+
+- **CPU (server):** OpenH264 is a software encoder, so video encoding runs entirely on the CPU and
+  each streaming session runs its own encoder. From our testing: **6 cores minimum, 8 or more
+  recommended**, more for several sessions at once or high resolutions. The encoder uses up to
+  `min(cores, 8)` threads by default (Encoder Settings → *Thread cap*). JPG mode needs no video
+  encoder but still costs CPU per frame.
+- **GPU (server):** not needed. *Disable GPU* is on by default.
+- **Viewer (client):** a browser with hardware H.264 decoding (any normal PC or phone) gives the
+  smoothest picture. In a VM or on a machine without a GPU, the browser decodes in software: it
+  still works, just slower.
+
 ## Build from source
 
 Requirements: **Windows x64**, **.NET 10 SDK**.
