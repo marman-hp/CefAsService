@@ -362,6 +362,9 @@ KNOWN ISSUES
   stays blank). The WebRTC viewer needs MediaStreamTrackProcessor, which
   Firefox on Windows does not have. Use Chrome or Edge there, or run the
   Broker in WebSocket mode (without --use-webrtc), which works in Firefox.
+* CPUs with fewer than 6 cores: streaming can stutter or become unstable,
+  since video is encoded in software. Use a 6-core or better CPU (8+
+  recommended) - see HARDWARE.
 
 
 FILES
