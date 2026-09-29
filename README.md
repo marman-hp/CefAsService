@@ -41,6 +41,13 @@ first-run prompt.
 
 Requirements: **Windows x64**, **.NET 10 SDK**.
 
+CEF version: **147.0.14+g76d2442+chromium-147.0.7727.138** (Chromium 147), Windows 64-bit *minimal*
+distribution. `get-cef.ps1` downloads it for you. To download it yourself, get
+[cef_binary_147.0.14+g76d2442+chromium-147.0.7727.138_windows64_minimal.tar.bz2](https://cef-builds.spotifycdn.com/cef_binary_147.0.14%2Bg76d2442%2Bchromium-147.0.7727.138_windows64_minimal.tar.bz2)
+(about 150 MB, all builds: [cef-builds.spotifycdn.com](https://cef-builds.spotifycdn.com/index.html)) and pass it to
+`get-cef.ps1 -FromArchive <path to the .tar.bz2>`. It must be exactly this version, because CefGlue's
+bindings are generated for it.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\get-cef.ps1      # download the CEF runtime (once)
 dotnet build CefAsService.sln -c Release -p:Platform=x64

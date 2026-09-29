@@ -16,16 +16,24 @@
 .PARAMETER LicenseFile
   CEF's LICENSE.txt, when the -FromDirectory folder tree doesn't hold it.
 
+.PARAMETER FromArchive
+  Use a cef_binary_<version>_windows64_minimal.tar.bz2 you downloaded yourself (e.g. from
+  https://cef-builds.spotifycdn.com/index.html) instead of downloading it. It must be the exact
+  version in Directory.Build.props (CefBuildVersion).
+
 .EXAMPLE
   .\get-cef.ps1
 .EXAMPLE
   .\get-cef.ps1 -FromDirectory C:\cef\runtimes\win-x64\native
 .EXAMPLE
   .\get-cef.ps1 -FromDirectory C:\cef\runtimes\win-x64\native -LicenseFile C:\cef_binary\LICENSE.txt
+.EXAMPLE
+  .\get-cef.ps1 -FromArchive C:\Downloads\cef_binary_<version>_windows64_minimal.tar.bz2
 #>
 param(
     [string]$FromDirectory,
-    [string]$LicenseFile
+    [string]$LicenseFile,
+    [string]$FromArchive
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,7 +79,14 @@ $work = Join-Path ([IO.Path]::GetTempPath()) "cefasservice-cef"
 $archive = Join-Path $work "$name.tar.bz2"
 
 New-Item -ItemType Directory -Force $work | Out-Null
-if (-not (Test-Path $archive)) {
+if ($FromArchive) {
+    if (-not (Test-Path $FromArchive)) { throw "Archive not found: $FromArchive" }
+    # CefGlue's bindings are generated for one exact CEF version - a different one fails at runtime.
+    if ((Split-Path $FromArchive -Leaf) -ne "$name.tar.bz2") {
+        throw "This build needs $name.tar.bz2 (CefBuildVersion in Directory.Build.props), not $(Split-Path $FromArchive -Leaf)."
+    }
+    $archive = (Resolve-Path $FromArchive).Path
+} elseif (-not (Test-Path $archive)) {
     Write-Host "Downloading $url (about 150 MB)..."
     Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
 }
