@@ -356,6 +356,14 @@ Transport (WebSocket/WebRTC) and isolation mode are fixed at launch; all
 other settings are changed on the Admin page and apply on Restart.
 
 
+KNOWN ISSUES
+------------
+* Firefox on Windows: in WebRTC mode the video does not show (the page
+  stays blank). The WebRTC viewer needs MediaStreamTrackProcessor, which
+  Firefox on Windows does not have. Use Chrome or Edge there, or run the
+  Broker in WebSocket mode (without --use-webrtc), which works in Firefox.
+
+
 FILES
 -----
   Admin\admin-settings.json     admin password (hashed), exe paths
