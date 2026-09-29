@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DotnetVersion)</TargetFramework>
+    <AssemblyName>Xilium.CefGlue.Headless.Service</AssemblyName>
+    <RootNamespace>Xilium.CefGlue.Headless.Service</RootNamespace>
+    <Nullable>disable</Nullable>
+    <Product>Xilium.CefGlue.Headless.Service</Product>
+    <AssemblyTitle>Xilium.CefGlue.Headless.Service</AssemblyTitle>
+    <Authors>Marman-HP</Authors>
+    <Copyright>Copyright © 2026 Marman-HP. Portions Copyright © XiliumHQ 2021, OutSystems 2021.</Copyright>
+  </PropertyGroup>
+
+  <Import Project="$(ProjectDir)..\CefGlue.CopyLocal.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\CefGlue.Headless\CefGlue.Headless.csproj" />
+    <ProjectReference Include="..\CefGlue.Headless.Server\CefGlue.Headless.Server.csproj" />
+    <ProjectReference Include="..\CefGlue\CefGlue.csproj" />
+    <ProjectReference Include="..\CefGlue.Common\CefGlue.Common.csproj" />
+    <ProjectReference Include="..\CefGlue.Common.Shared\CefGlue.Common.Shared.csproj" />
+
+    <ProjectReference Include="..\CefGlue.Common.Encoder\CefGlue.Common.Encoder.csproj" />
+
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\cef\runtimes\win-x64\native\**">
+      <Link>runtimes\win-x64\native\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
+  <Import Project="EncoderPlugins.props" />
+  <Import Project="..\lib\BinaryComponents.props" />
+
+  <Import Project="$(ProjectDir)..\CefGlue.Common\build\CefGlue.Common.targets" />
+
+</Project>

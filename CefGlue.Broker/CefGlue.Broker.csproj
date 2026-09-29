@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DotnetVersion)</TargetFramework>
+    <AssemblyName>Xilium.CefGlue.Broker</AssemblyName>
+    <RootNamespace>Xilium.CefGlue.Broker</RootNamespace>
+    <Nullable>disable</Nullable>
+    <Product>Xilium.CefGlue.Broker</Product>
+    <AssemblyTitle>Xilium.CefGlue.Broker</AssemblyTitle>
+    <Authors>Marman-HP</Authors>
+    <Copyright>Copyright © 2026 Marman-HP. Portions Copyright © XiliumHQ 2021, OutSystems 2021.</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\CefGlue.Headless.Service\TenantCachePaths.cs" Link="TenantCachePaths.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="client-bundle\client.js">
+      <Link>wwwroot\client.js</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="client-bundle\client.rtc.js">
+      <Link>wwwroot\client.rtc.js</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <Content Update="wwwroot\img\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

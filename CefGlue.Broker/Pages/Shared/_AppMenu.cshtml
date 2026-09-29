@@ -1,0 +1,39 @@
+<div id="appMenu" class="hidden absolute right-2 top-full z-50 mt-1 min-w-[240px] max-w-[calc(100vw-16px)] py-1.5 rounded-lg bg-neutral-800 border border-neutral-700 shadow-[0_10px_38px_rgba(0,0,0,0.85)] text-sm select-none">
+    <button id="realFullscreenToggle" type="button" title="Toggle browser fullscreen"
+            class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60">
+        <svg id="realFullscreenIcon" width="16" height="16" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0 text-neutral-400">
+            <rect x="1" y="2" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="4.5" y1="12.5" x2="9.5" y2="12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="7" y1="10" x2="7" y2="12.5" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        <span class="flex-1">Fullscreen</span>
+        <span id="realFullscreenPill" class="shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400">Off</span>
+    </button>
+    <button id="fullscreenToggle" type="button" title="Hide toolbar/sidebar (Esc to exit)"
+            class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60">
+        <svg id="fullscreenIcon" width="16" height="16" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0 text-neutral-400">
+            <path d="M1 5V1.5H4.5M13 5V1.5H9.5M1 9V12.5H4.5M13 9V12.5H9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="flex-1">Hide toolbar</span>
+        <span id="hideToolbarPill" class="shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400">Off</span>
+    </button>
+    <div class="my-1 border-t border-neutral-700/60"></div>
+    <button id="muteToggle" type="button" title="Toggle sound"
+            class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60">
+        <svg id="muteIcon" width="16" height="16" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0 text-neutral-400">
+            <path d="M1 5.5H3.5L6.5 2.5V11.5L3.5 8.5H1V5.5Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+            <path id="muteWaves" d="M8.5 4.5C9.5 5.5 9.5 8.5 8.5 9.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+        <span class="flex-1">Sound</span>
+        <span id="mutePill" class="shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-600 text-white">On</span>
+    </button>
+    <button id="overlayToggle" type="button" title="Toggle overlay HUD"
+            class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60">
+        <svg width="16" height="16" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0 text-neutral-400">
+            <rect x="1" y="1.5" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M2.5 9.5L5 6.5L6.8 8.3L11.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="flex-1">Overlay info</span>
+        <span id="overlayPill" class="shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400">Off</span>
+    </button>
+</div>

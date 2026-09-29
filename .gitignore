@@ -1,0 +1,18 @@
+bin/
+obj/
+.vs/
+packages/
+Nuget/output/
+artifacts/
+*.user
+*.suo
+*.log
+
+# CEF runtime - downloaded by get-cef.ps1, never committed (libcef.dll alone is ~265 MB).
+cef/
+
+# Written at runtime next to the executables.
+broker-settings.json
+broker-workers.json
+admin-settings.json
+broker-dev-cert.pfx

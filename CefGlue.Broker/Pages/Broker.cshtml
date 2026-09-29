@@ -1,0 +1,205 @@
+@page "/broker"
+@{
+    Layout = null;
+
+    var useWebRtc = string.Equals(System.Environment.GetEnvironmentVariable("CEFGLUE_USE_WEBRTC"), "1", System.StringComparison.OrdinalIgnoreCase);
+
+    ViewData["UseWebRtc"] = useWebRtc;
+}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes">
+<title>CefGlue Service</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #frame.pixelated-backstop, #rtcCanvas.pixelated-backstop {
+        image-rendering: pixelated;
+        filter: none;
+        backdrop-filter: none;
+        box-shadow: none;
+    }
+
+</style>
+</head>
+<body class="h-screen w-screen flex overflow-hidden bg-neutral-900 text-neutral-100 text-sm">
+
+    <partial name="Shared/_Sidebar" />
+
+    <div id="sidebarSplitter" class="w-1 shrink-0 cursor-col-resize bg-neutral-800 hover:bg-neutral-600 active:bg-neutral-500"></div>
+
+    <div class="flex-1 flex flex-col min-w-0">
+        <partial name="Shared/_Toolbar" />
+
+        <div id="frameHost" class="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+            <img id="popupBackdrop" alt="" class="absolute inset-0 w-full h-full object-cover hidden pointer-events-none"
+                 style="filter: brightness(0.35) blur(2px); transform: scale(1.03);">
+            <div id="windowChrome" class="w-full h-full flex flex-col min-h-0 bg-neutral-900">
+                <div id="windowTitleBar" class="hidden shrink-0 h-8 px-3 items-center gap-2 bg-neutral-800 border-b border-neutral-700 select-none cursor-move">
+                    <svg width="11" height="11" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0 text-neutral-400">
+                        <path d="M5.5 2H2V12H12V8.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M8 2H12V6M12 2L6.5 7.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span id="windowTitleText" class="flex-1 truncate text-xs text-neutral-300"></span>
+                    <button id="windowMaxBtn" type="button" title="Maximize"
+                            class="w-5 h-5 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white flex items-center justify-center shrink-0"></button>
+                    <button id="windowCloseBtn" type="button" title="Close popup"
+                            class="w-5 h-5 rounded hover:bg-red-600 hover:text-white text-neutral-400 flex items-center justify-center text-xs leading-none shrink-0">âœ•</button>
+                </div>
+                <div id="canvasWrapper" class="flex-1 relative min-h-0 overflow-auto">
+                    <canvas id="frame" class="w-full h-full @(useWebRtc ? "" : "hidden") select-none pixelated-backstop"></canvas>
+                    <canvas id="rtcCanvas" class="absolute inset-0 w-full h-full select-none hidden"></canvas>
+                </div>
+            </div>
+            <div id="emptyState" class="text-neutral-600">No browser selected</div>
+
+            <textarea id="keyCapture" autocomplete="off" autocapitalize="off" spellcheck="false"
+                      class="absolute w-px h-px opacity-0 -left-full" aria-hidden="true"></textarea>
+
+            <partial name="Shared/_ContextMenu" />
+
+            <partial name="Shared/_EncoderErrorBanner" />
+
+            <input id="uploadPicker" type="file" class="hidden" />
+
+            <partial name="Shared/_ViewSourceModal" />
+        </div>
+    </div>
+
+    <partial name="Shared/_SessionRestore" />
+    <partial name="Shared/_IsolationEpoch" />
+    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20260930a"></script>
+    <script>
+        (function () {
+            var KEYID_STORAGE_KEY = 'cefglue_keyid';
+            var KEYID_MAX_AGE_SECONDS = 900;
+            var firstResolve = true;
+            var currentKeyId = null;
+
+            function getPersistedKeyId(name) {
+                try {
+                    var raw = localStorage.getItem(name);
+                    if (!raw) {
+                        return null;
+                    }
+                    var parsed = JSON.parse(raw);
+                    if (!parsed || typeof parsed.value !== 'string' || typeof parsed.expiresAt !== 'number') {
+                        return null;
+                    }
+                    if (Date.now() > parsed.expiresAt) {
+                        localStorage.removeItem(name);
+                        return null;
+                    }
+                    return parsed.value;
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            function setPersistedKeyId(name, value, maxAgeSeconds) {
+                try {
+                    localStorage.setItem(name, JSON.stringify({ value: value, expiresAt: Date.now() + maxAgeSeconds * 1000 }));
+                } catch (e) {
+                }
+            }
+
+            var wsScheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+
+            var manualPort = new URLSearchParams(window.location.search).get('port');
+            var wsHost = new URLSearchParams(window.location.search).get('host') || '127.0.0.1';
+
+            var modeParam = new URLSearchParams(window.location.search).get('mode');
+
+            var cachedAutoPortMode = modeParam === 'port';
+            var cachedInitialFrameFormat = 'h264';
+
+            function ensureConfigResolved() {
+                return fetch('/config')
+                    .then(function (response) { return response.ok ? response.json() : null; })
+                    .then(function (config) {
+                        if (config) {
+                            if (modeParam === null) {
+                                cachedAutoPortMode = config.defaultMode === 'port';
+                            }
+                            cachedInitialFrameFormat = config.defaultFormat === 'jpg' ? 'jpg' : 'h264';
+                        }
+                    })
+                    .catch(function (e) {
+                        console.error('[broker.html] Failed to fetch broker /config, defaulting to relay mode + h264 format:', e);
+                    });
+            }
+
+            function resolveConnection() {
+                if (manualPort) {
+                    return Promise.resolve({
+                        url: wsScheme + wsHost + ':' + manualPort + '/frames',
+                        modeLabel: 'port (manual)',
+                        initialFrameFormat: 'h264',
+                    });
+                }
+
+                return ensureConfigResolved()
+                    .then(function () {
+                        var keyIdPromise = firstResolve
+                            ? window.CefGlueSessionRestore.resolveStoredKeyId(KEYID_STORAGE_KEY, KEYID_MAX_AGE_SECONDS)
+                            : Promise.resolve(getPersistedKeyId(KEYID_STORAGE_KEY));
+                        firstResolve = false;
+                        return keyIdPromise;
+                    })
+                    .then(function (existingKeyId) {
+                        return fetch('/assign', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(existingKeyId ? { keyId: existingKeyId } : {}),
+                        });
+                    })
+                    .then(function (response) {
+                        if (response.status === 410) {
+                            currentKeyId = null;
+                            return window.CefGlueSessionRestore.showEnded(KEYID_STORAGE_KEY);
+                        }
+                        if (!response.ok) {
+                            throw new Error('Broker /assign failed: HTTP ' + response.status);
+                        }
+                        return response.json();
+                    })
+                    .then(function (result) {
+                        if (typeof result.keyIdMaxAgeSeconds === 'number' && result.keyIdMaxAgeSeconds > 0) {
+                            KEYID_MAX_AGE_SECONDS = result.keyIdMaxAgeSeconds;
+                        }
+                        setPersistedKeyId(KEYID_STORAGE_KEY, result.keyId, KEYID_MAX_AGE_SECONDS);
+                        currentKeyId = result.keyId;
+
+                        return window.CefGlueIsolationEpoch.check(result.isolation).then(function () { return result; });
+                    })
+                    .then(function (result) {
+                        window.CefGlueSessionRestore.startSlidingRefresh(KEYID_STORAGE_KEY, function () { return KEYID_MAX_AGE_SECONDS; }, function () { return currentKeyId; });
+                        var parts = result.address.split(':');
+
+                        return cachedAutoPortMode
+                            ? {
+                                url: wsScheme + parts[0] + ':' + parts[1] + '/frames',
+                                modeLabel: 'port',
+                                initialFrameFormat: cachedInitialFrameFormat,
+                            }
+                            : {
+                                url: wsScheme + window.location.host + '/relay/frames?tenant=' + encodeURIComponent(result.keyId),
+                                modeLabel: 'relay',
+                                initialFrameFormat: cachedInitialFrameFormat,
+                            };
+                    });
+            }
+
+            @(useWebRtc ? "CefGlueWebRtcClient" : "CefGlueClient")(resolveConnection, { responsiveToolbarKebab: true });
+        })();
+    </script>
+</body>
+</html>

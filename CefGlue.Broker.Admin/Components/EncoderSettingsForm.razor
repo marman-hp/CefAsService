@@ -1,0 +1,96 @@
+@if (Manifest.HasTunableSettings)
+{
+    <div class="encoder-section">
+        <div class="section-heading">
+            <span class="section-accent"></span>
+            <span>Encoding quality</span>
+        </div>
+
+        <div class="settings-grid">
+            @foreach (var setting in Manifest.Settings)
+            {
+                var envVar = Manifest.EnvVarName(setting);
+                var inputId = $"{Manifest.Id}-{setting.Key}".ToLowerInvariant();
+                <div class="field">
+                    <label for="@inputId" title="@setting.Title">@setting.Label</label>
+
+                    @if (setting.Type == "select")
+                    {
+                        <select id="@inputId" value="@Get(envVar)" @onchange="@(e => Set(envVar, (string)e.Value))">
+                            @foreach (var option in setting.Options)
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                    }
+                    else if (!string.IsNullOrEmpty(setting.Unit))
+                    {
+                        <div class="input-with-suffix">
+                            <input id="@inputId" type="@InputType(setting)" min="@setting.Min" max="@setting.Max" step="@setting.Step"
+                                   placeholder="@setting.Placeholder" value="@Get(envVar)"
+                                   @onchange="@(e => Set(envVar, (string)e.Value))" />
+                            <span>@setting.Unit</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <input id="@inputId" type="@InputType(setting)" min="@setting.Min" max="@setting.Max" step="@setting.Step"
+                               placeholder="@setting.Placeholder" value="@Get(envVar)"
+                               @onchange="@(e => Set(envVar, (string)e.Value))" />
+                    }
+
+                    <span class="field-note">@setting.Note</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (Manifest.Fixed.Count > 0)
+{
+    <div class="encoder-section fixed-section">
+        <div class="section-heading">
+            <span class="section-accent muted"></span>
+            <span>Fixed architecture</span>
+            <span class="readonly-badge">READ ONLY</span>
+        </div>
+
+        <div class="fixed-grid">
+            @foreach (var item in Manifest.Fixed)
+            {
+                <div class="fixed-card">
+                    <div class="fixed-card-top">
+                        <span class="fixed-label">@item.Label</span>
+                        @if (item.Check)
+                        {
+                            <span class="fixed-check">✓</span>
+                        }
+                    </div>
+                    <div class="fixed-value">@item.Value</div>
+                    <div class="fixed-note">@item.Note</div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public EncoderManifest Manifest { get; set; }
+
+    [Parameter]
+    public Dictionary<string, string> Values { get; set; }
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private string Get(string envVar) => Values != null && Values.TryGetValue(envVar, out var value) ? value : "";
+
+    private static string InputType(EncoderSettingDefinition setting) => setting.Type == "number" ? "number" : "text";
+
+    private async Task Set(string envVar, string value)
+    {
+        Values[envVar] = value ?? "";
+        await OnChanged.InvokeAsync();
+    }
+}

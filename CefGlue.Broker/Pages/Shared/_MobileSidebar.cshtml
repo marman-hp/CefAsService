@@ -1,0 +1,15 @@
+<div id="sidebarScrim" class="hidden absolute inset-0 z-40 bg-black/50"></div>
+<aside id="sidebar" class="shrink-0 bg-neutral-950 border-r border-neutral-800 flex flex-col overflow-hidden">
+    <div class="px-3 py-3 border-b border-neutral-800 flex items-center justify-between">
+        <span class="text-xs font-semibold uppercase tracking-wide text-neutral-400">Browsers</span>
+        <button id="addBtn" class="w-6 h-6 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 leading-none flex items-center justify-center">+</button>
+    </div>
+    <div id="browserList" class="flex-1 min-h-0 overflow-y-auto py-1"></div>
+
+    <partial name="Shared/_FrameStatsPanel" />
+
+    <partial name="Shared/_ConnectionStatsPanel" />
+
+    <partial name="Shared/_BandwidthPanel" />
+    <partial name="Shared/_PoweredByCef" />
+</aside>

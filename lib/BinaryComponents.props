@@ -1,0 +1,17 @@
+<Project>
+  <ItemGroup>
+    <Reference Include="Xilium.CefGlue.WebRTC.Transport">
+      <HintPath>$(MSBuildThisFileDirectory)webrtc\Xilium.CefGlue.WebRTC.Transport.dll</HintPath>
+    </Reference>
+    <None Include="$(MSBuildThisFileDirectory)webrtc\datachannel.dll" Link="datachannel.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)webrtc\libssl-3-x64.dll" Link="libssl-3-x64.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)webrtc\libcrypto-3-x64.dll" Link="libcrypto-3-x64.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)webrtc\LICENSE-libdatachannel.txt" Link="LICENSE-libdatachannel.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)webrtc\LICENSE-openssl.txt" Link="LICENSE-openssl.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Reference Include="Xilium.CefGlue.Opus.Encoder">
+      <HintPath>$(MSBuildThisFileDirectory)opus\Xilium.CefGlue.Opus.Encoder.dll</HintPath>
+    </Reference>
+    <None Include="$(MSBuildThisFileDirectory)opus\opus.dll" Link="opus.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)opus\COPYING-opus.txt" Link="COPYING-opus.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+</Project>

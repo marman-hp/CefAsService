@@ -1,0 +1,24 @@
+@{
+    var useWebRtcForTransportLabel = ViewData["UseWebRtc"] as bool? ?? false;
+}
+<div id="connectionStatsPanel" class="shrink-0 border-t border-neutral-800 px-3 py-2">
+    <div class="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold mb-1">Connection</div>
+    <div class="flex items-center flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-neutral-400">
+        <span class="flex items-center gap-1.5 normal-case">
+            Transport
+            <b id="transportValue" class="text-neutral-200 font-medium">@(useWebRtcForTransportLabel ? "WebRTC" : "WebSocket")</b>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <span class="w-2 h-0.5 rounded-full bg-fuchsia-400 inline-block"></span>Latency
+            <b id="latencyValue" class="text-neutral-200 font-medium">-</b>
+        </span>
+        <span class="flex items-center gap-1.5 normal-case">
+            Via
+            <b id="remoteIpValue" class="text-neutral-200 font-medium">-</b>
+        </span>
+        <span class="flex items-center gap-1.5 normal-case">
+            Mode
+            <b id="connModeValue" class="text-neutral-200 font-medium">-</b>
+        </span>
+    </div>
+</div>

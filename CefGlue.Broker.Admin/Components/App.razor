@@ -1,0 +1,21 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CefGlue Broker - Admin</title>
+    <base href="/" />
+    <link rel="stylesheet" href="Xilium.CefGlue.Broker.Admin.styles.css?v=@StylesVersion" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+
+@code {
+    private string StylesVersion => Env.WebRootFileProvider.GetFileInfo("Xilium.CefGlue.Broker.Admin.styles.css").LastModified.UtcTicks.ToString();
+}

@@ -1,0 +1,35 @@
+CefAsService Binary Component License
+
+Copyright (c) 2026 Marman-HP. All rights reserved.
+
+This license covers the prebuilt components shipped without source code in lib/:
+
+  lib/webrtc/Xilium.CefGlue.WebRTC.Transport.dll
+  lib/opus/Xilium.CefGlue.Opus.Encoder.dll
+  lib/plugins/encoders/openh264/Xilium.CefGlue.OpenH264.Encoder.dll
+  lib/plugins/encoders/openh264/Xilium.CefGlue.VideoEncoder.Shared.dll
+
+The third-party native libraries next to them (datachannel.dll, OpenSSL, opus.dll, openh264.dll,
+CefGlueYuv.dll) are NOT covered by this license; each keeps its own license, in the LICENSE-* /
+COPYING-* file beside it.
+
+1. Permission. You may use the components free of charge, for personal and commercial purposes,
+   as part of CefAsService or software built from it.
+
+2. Redistribution. You may redistribute the components only unmodified and only together with
+   CefAsService or software built from it, including this license file.
+
+3. Restrictions. You may not modify, decompile, disassemble or otherwise reverse engineer the
+   components, except to the extent applicable law expressly permits it despite this limitation.
+   You may not sell the components on their own.
+
+4. No warranty. THE COMPONENTS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE COMPONENTS OR THEIR
+   USE.
+
+5. Termination. This license ends automatically if you break its terms.
+
+The source code in this repository is licensed separately under the MIT License - see LICENSE and
+the LICENSE file in each project folder.

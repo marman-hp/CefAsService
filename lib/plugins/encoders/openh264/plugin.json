@@ -1,0 +1,90 @@
+{
+  "assembly": "Xilium.CefGlue.OpenH264.Encoder.dll",
+  "encoders": [
+    {
+      "id": "openh264",
+      "displayName": "openh264",
+      "library": "H.264 · OpenH264 (ver - 2.6.0)",
+      "settingsPrefix": "OPENH264",
+      "download": {
+        "url": "https://ciscobinary.openh264.org/openh264-2.6.0-win64.dll.bz2",
+        "file": "openh264.dll",
+        "sha256": "2076cb5675ec6c1a4c70e7a2a322552f547b6eeed649d6dfcd9e02a543b24691",
+        "provider": "Cisco",
+        "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+        "licenseUrl": "https://www.openh264.org/BINARY_LICENSE.txt"
+      },
+      "settings": [
+        {
+          "key": "COMPLEXITY",
+          "label": "Complexity",
+          "type": "select",
+          "options": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "title": "OpenH264's own preset-style speed/quality knob",
+          "note": "Speed vs compression"
+        },
+        {
+          "key": "PROFILE",
+          "label": "Profile",
+          "type": "select",
+          "options": [
+            "baseline",
+            "main",
+            "high"
+          ],
+          "default": "baseline",
+          "title": "Same quality at every profile (CAVLC, no B-frames) - High needs a viewer with a hardware H.264 decoder over WebRTC",
+          "note": "Baseline plays everywhere"
+        },
+        {
+          "key": "TARGET_BITRATE_MBPS",
+          "label": "Target bitrate",
+          "type": "number",
+          "min": "1",
+          "step": "1",
+          "unit": "Mbps",
+          "default": "50",
+          "title": "RC_QUALITY_MODE's real steered-toward operating point",
+          "note": "Steered-toward average"
+        },
+        {
+          "key": "MAX_BITRATE_MBPS",
+          "label": "Max bitrate",
+          "type": "number",
+          "min": "1",
+          "step": "1",
+          "unit": "Mbps",
+          "default": "60",
+          "title": "Burst headroom above the target",
+          "note": "Burst ceiling"
+        },
+        {
+          "key": "KEYINT_SECONDS",
+          "label": "GOP interval",
+          "type": "number",
+          "min": "0.1",
+          "step": "0.1",
+          "unit": "s",
+          "default": "0.5",
+          "note": "Keyframe interval"
+        },
+        {
+          "key": "THREADS",
+          "label": "Thread cap",
+          "type": "number",
+          "min": "1",
+          "step": "1",
+          "placeholder": "Auto",
+          "default": "",
+          "title": "Blank = auto, min(logical cores, 8)",
+          "note": "Blank = automatic"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+.download-panel {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 14px;
+    padding: 15px 17px;
+    border: 1px solid #2c313c;
+    border-left: 3px solid var(--enc-blue);
+    border-radius: 12px;
+    background: var(--enc-panel);
+    box-sizing: border-box;
+}
+
+.download-panel.missing {
+    border-left-color: #e0a53d;
+}
+
+.download-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.download-attribution {
+    color: #e6eaf0;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.download-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--enc-muted);
+    font-size: 12px;
+}
+
+.download-dot {
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #e0a53d;
+}
+
+.download-dot.ok {
+    background: var(--enc-green);
+}
+
+.download-message {
+    color: var(--enc-green);
+    font-size: 12px;
+}
+
+.download-message.error {
+    color: #e0665a;
+}
+
+.download-license {
+    align-self: flex-start;
+    color: var(--enc-blue);
+    font-size: 12px;
+    text-decoration: none;
+}
+
+.download-license:hover {
+    text-decoration: underline;
+}
+
+.download-actions {
+    flex: 0 0 auto;
+}
+
+.download-button {
+    padding: 8px 14px;
+    border: 1px solid var(--enc-blue);
+    border-radius: 8px;
+    background: var(--enc-blue);
+    color: #0d1420;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.download-button.secondary {
+    border-color: var(--enc-border);
+    background: var(--enc-input);
+    color: var(--enc-text);
+}
+
+.download-button:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.download-button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+@media (max-width: 640px) {
+    .download-panel {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+.download-panel.unrecognized {
+    border-left-color: #e0665a;
+}
+
+.download-dot.bad {
+    background: #e0665a;
+}
+
+.download-actions {
+    display: flex;
+    gap: 8px;
+}

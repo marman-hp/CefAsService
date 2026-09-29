@@ -1,0 +1,1378 @@
+﻿@page "/admin"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject BrokerSupervisor Supervisor
+@inject RemoteWorkerSource WorkerSource
+@inject AdminAuth Auth
+@inject AdminSettingsStore AdminSettings
+@inject ExePaths Paths
+@inject NavigationManager Navigation
+
+<PageTitle>CefGlue Broker - Admin</PageTitle>
+
+<div class="admin-page">
+    <div class="page-header">
+        <h1>CefGlue Broker Admin</h1>
+        <form method="post" action="/logout">
+            <AntiforgeryToken />
+            <button class="btn" type="submit">Log out</button>
+        </form>
+    </div>
+
+    @if (_isolationSwitch is { } isolationSwitch && isolationSwitch.AtUtc != _dismissedIsolationSwitchAtUtc)
+    {
+        <div class="warning-banner @(isolationSwitch.WipeOk ? "" : "warning-banner-error")" role="alert">
+            <div>
+                <strong>Isolation mode changed: per @isolationSwitch.From → per @isolationSwitch.To</strong>
+                (broker start at @isolationSwitch.AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")).
+                @if (isolationSwitch.WipeOk)
+                {
+                    <span>The worker cache for every tenant was deleted - logins, cookies and site data are gone. Open tabs come back on their last URL, signed out.</span>
+                }
+                else
+                {
+                    <span>The worker cache could NOT be fully deleted (files still in use). Stop every worker, then restart the broker to retry.</span>
+                }
+            </div>
+            <button class="btn" @onclick="() => _dismissedIsolationSwitchAtUtc = isolationSwitch.AtUtc">Dismiss</button>
+        </div>
+    }
+
+    @if (WebRtcMissingEncoder is { } missingEncoder)
+    {
+        <div class="warning-banner" role="alert">
+            <div>
+                <strong>WebRTC needs a video encoder.</strong>
+                Viewers get no video until @missingEncoder.DisplayName is installed.
+                <div class="banner-attribution">@missingEncoder.Download.Attribution</div>
+                @if (!string.IsNullOrEmpty(_bannerMessage))
+                {
+                    <div class="banner-error">@_bannerMessage</div>
+                }
+            </div>
+            <button class="btn" disabled="@_bannerBusy" @onclick="() => DownloadFromBannerAsync(missingEncoder)">
+                @(_bannerBusy ? "Downloading..." : $"Download from {missingEncoder.Download.Provider}")
+            </button>
+        </div>
+    }
+    else if (_justInstalledEncoder != null)
+    {
+        <div class="info-banner" role="status">
+            <div>
+                <strong>@_justInstalledEncoder installed.</strong>
+                @(Supervisor.IsRunning ? "Restart the broker to start using it." : "Press Start to use it.")
+            </div>
+            @if (Supervisor.IsRunning)
+            {
+                <button class="btn" disabled="@_restarting" @onclick="RestartAfterInstallAsync">@(_restarting ? "Restarting..." : "Restart now")</button>
+            }
+            else
+            {
+                <button class="btn" @onclick="() => _justInstalledEncoder = null">Dismiss</button>
+            }
+        </div>
+    }
+
+    <section class="panel">
+        <h2>Broker Controls</h2>
+
+        <div class="control-row">
+            <span>Status: <strong>@StatusText</strong></span>
+            <span>PID: <strong>@(Supervisor.IsRunning ? Supervisor.Pid.ToString() : "-")</strong></span>
+            <span>Uptime: <strong>@UptimeText</strong></span>
+        </div>
+
+        <div class="settings-tabs" role="tablist">
+            @for (var i = 0; i < SettingsTabNames.Length; i++)
+            {
+                var tab = i;
+                <button type="button" role="tab" aria-selected="@(_settingsTab == tab ? "true" : "false")"
+                        class="settings-tab @(_settingsTab == tab ? "active" : "")" @onclick="() => _settingsTab = tab">
+                    @SettingsTabNames[tab]
+                    @if (SettingsTabHasPending(tab))
+                    {
+                        <span class="settings-tab-dot" title="Changed - restart to apply"></span>
+                    }
+                </button>
+            }
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 0)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 5h16v10H4z M2 19h20 M9 15v4 M15 15v4"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">CEF Settings</div>
+                        <div class="encoder-subtitle">
+                            <span>GPU rendering, cache limits - applies at Chromium/CEF startup</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column; gap: 0;">
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label class="checkbox-option">
+                        <input type="checkbox" checked="@_selectedDisableGpu"
+                               @onchange="@(e => _selectedDisableGpu = (bool)e.Value)" />
+                        Disable GPU
+                    </label>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label class="checkbox-option" title="@(_selectedDisableGpu ? "Shared-texture rendering needs the GPU Disable GPU would be turning off" : null)">
+                        <input type="checkbox" checked="@_selectedTextureEnable" disabled="@_selectedDisableGpu"
+                               @onchange="@(e => _selectedTextureEnable = (bool)e.Value)" />
+                        Texture Enable
+                    </label>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="disk-cache-size-input">Disk Cache Size</label>
+                    <input id="disk-cache-size-input" type="number" min="0" step="1"
+                           value="@SelectedDiskCacheSizeMb"
+                           @onchange="@(e => SelectedDiskCacheSizeMb = (string)e.Value)" />
+                    <span>MB</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="media-cache-size-input">Media Cache Size</label>
+                    <input id="media-cache-size-input" type="number" min="0" step="1"
+                           value="@SelectedMediaCacheSizeMb"
+                           @onchange="@(e => SelectedMediaCacheSizeMb = (string)e.Value)" />
+                    <span>MB</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="default-url-input">Default URL address</label>
+                    <input id="default-url-input" type="text" spellcheck="false" class="url-input"
+                           placeholder="@DefaultUrlFallback"
+                           value="@_selectedDefaultUrl"
+                           @onchange="@(e => _selectedDefaultUrl = ((string)e.Value)?.Trim())" />
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label class="checkbox-option">
+                        <input type="checkbox" checked="@_selectedNewPageUseLastUrl"
+                               @onchange="@(e => _selectedNewPageUseLastUrl = (bool)e.Value)" />
+                        Use last URL when adding a new page
+                    </label>
+                    <span>@(_selectedNewPageUseLastUrl ? "\"+\" opens the address bar's current URL" : "\"+\" always opens the Default URL")</span>
+                </div>
+
+                <div class="encoder-audio-row worker-cache-row">
+                    <label>Worker Cache</label>
+                    <span>@FormatBytes(_cacheSizeBytes) @(_cacheTenantCount > 0 ? $"across {_cacheTenantCount} tenant(s)" : "")</span>
+
+                    @if (_confirmingClearCache)
+                    {
+                        <span>Clear it? Requires no workers currently running.</span>
+                        <button class="btn btn-danger" @onclick="ClearCacheAsync" disabled="@_clearingCache">Yes, clear</button>
+                        <button class="btn" @onclick="() => _confirmingClearCache = false" disabled="@_clearingCache">Cancel</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-danger" @onclick="() => _confirmingClearCache = true" disabled="@(_clearingCache || !HasAnyCacheToClear)">
+                            @(_clearingCache ? "Clearing..." : "Clear Cache")
+                        </button>
+                    }
+
+                    @if (_clearCacheError != null)
+                    {
+                        <span class="pending-note">@_clearCacheError</span>
+                    }
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label class="checkbox-option">
+                        <input type="checkbox" checked="@_clearEverything" @onchange="@(e => _clearEverything = (bool)e.Value)" />
+                        Clear everything
+                    </label>
+                    <span>also wipes the stale standalone dev-run cache - @FormatBytes(_standaloneCacheSizeBytes)</span>
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 1)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 7h16M4 12h16M4 17h16M8 4v6M16 9v6M8 14v6"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Encoder Settings</div>
+                        <div class="encoder-subtitle">
+                            <select id="encoder-select" @bind="_selectedEncoder">
+                                @foreach (var option in VisibleEncoderOptions)
+                                {
+                                    <option value="@(option.Value ?? "")">@option.Label</option>
+                                }
+                            </select>
+                            @if (ActiveEncoderLibraryInfo != null)
+                            {
+                                <span>@ActiveEncoderLibraryInfo</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (HasTunableEncoderSettings)
+                {
+                    <div class="encoder-header-actions">
+                        <button type="button"
+                                class="reset-button"
+                                title="Reset all tunable settings to defaults"
+                                @onclick="ResetActiveEncoderSettings">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M3 11a9 9 0 1 1 2.64 6.36L3 14.72M3 5v6h6"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      stroke-width="1.8"
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round" />
+                            </svg>
+                            <span>Reset</span>
+                        </button>
+
+                        <span class="encoder-badge">
+                            <span class="status-dot"></span>
+                            Tunable
+                        </span>
+                    </div>
+                }
+            </div>
+
+            @if (SelectedEncoderManifest is { Download: not null } downloadManifest)
+            {
+                <EncoderDownloadPanel Manifest="downloadManifest" OnChanged="StateHasChanged" />
+            }
+
+            <div class="encoder-body">
+                @if (_encoderManifests.Count == 0)
+                {
+                    <div class="encoder-empty-state">No encoder plugins found next to the worker exe (plugins\encoders). Check the worker path in the Executables tab.</div>
+                }
+                else if (string.IsNullOrEmpty(_selectedEncoder))
+                {
+                    <div class="encoder-empty-state">Select an encoder above to configure it. Left unset, the broker falls back to plain JPG frames, which needs no native encoder at all.</div>
+                }
+                else if (SelectedEncoderManifest is not { } manifest)
+                {
+                    <div class="encoder-empty-state">This encoder isn't installed in the configured worker build (no matching plugin.json).</div>
+                }
+                else if (manifest.HasTunableSettings || manifest.Fixed.Count > 0)
+                {
+                    <EncoderSettingsForm Manifest="manifest" Values="_encoderValues" OnChanged="OnEncoderSettingsChanged" />
+                }
+                else
+                {
+                    <div class="encoder-empty-state">This encoder has no additional tunable settings yet - it runs with its own built-in defaults.</div>
+                }
+            </div>
+
+            <div class="encoder-audio-row">
+                <label for="audio-bitrate-input">Audio Bitrate (Opus)</label>
+                <input id="audio-bitrate-input" type="number" min="6" max="510" step="1"
+                       value="@_selectedAudioBitrateKbps"
+                       @onchange="@(e => _selectedAudioBitrateKbps = (string)e.Value)" />
+                <span>kbps</span>
+            </div>
+        </div>
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 2)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 7l4-4M4 7l4 4M4 7h16M20 17l-4 4M20 17l-4-4M20 17H4"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Transport</div>
+                        <div class="encoder-subtitle">
+                            <span>@(_activeUseWebRtc ? "WebRTC" : "WebSocket")</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="encoder-empty-state" style="text-align: left;">
+                    Fixed at broker launch via --use-webrtc - not changeable from Admin. Restart with a different flag to switch.
+                </div>
+
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label>Connection Mode</label>
+                    <div class="radio-group">
+                        @foreach (var option in ConnectionModeOptions)
+                        {
+                            <label class="radio-option">
+                                <input type="radio" name="mode-select" value="@option.Value"
+                                       checked="@(_selectedMode == option.Value)"
+                                       @onchange="() => _selectedMode = option.Value" />
+                                @option.Label
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                @if (_activeUseWebRtc)
+                {
+                    <div class="encoder-audio-row">
+                        <label for="webrtc-pacing-input">WebRTC Video Pacing</label>
+                        <input id="webrtc-pacing-input" type="number" min="1000000" step="1000000"
+                               value="@_selectedWebRtcPacingBps"
+                               @onchange="@(e => _selectedWebRtcPacingBps = (string)e.Value)" />
+                        <span>bps</span>
+                        <button type="button" class="btn" @onclick="@(() => _selectedWebRtcPacingBps = "500000000")">Use 500M</button>
+                    </div>
+
+                    <div class="encoder-audio-row">
+                        <label>WebRTC ICE Servers</label>
+                        <select size="4" style="min-width:420px;" @bind="_selectedIceServerEntry">
+                            @foreach (var uri in _iceServerEntries)
+                            {
+                                <option value="@uri">@uri</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="encoder-audio-row">
+                        <label for="ice-server-uri-input">STUN or TURN URI:</label>
+                        <input id="ice-server-uri-input" type="text" style="min-width:280px;"
+                               placeholder="stun:host:3478 or turn:host:3478?transport=udp"
+                               @bind="_newIceServerUri" />
+                    </div>
+
+                    <div class="encoder-audio-row">
+                        <label for="ice-server-username-input">TURN username:</label>
+                        <input id="ice-server-username-input" type="text" @bind="_newIceServerUsername" />
+                    </div>
+
+                    <div class="encoder-audio-row">
+                        <label for="ice-server-password-input">TURN password:</label>
+                        <input id="ice-server-password-input" type="text" @bind="_newIceServerPassword" />
+                    </div>
+
+                    <div class="encoder-audio-row">
+                        <button type="button" class="btn" @onclick="AddIceServer">Add Server</button>
+                        <button type="button" class="btn btn-danger" @onclick="RemoveSelectedIceServer">Remove Server</button>
+                        <button type="button" class="btn" @onclick="ResetIceServersToDefault">Reset to defaults</button>
+                    </div>
+                }
+            </div>
+        </div>
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 3)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 8v4l3 3M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Session &amp; Cleanup</div>
+                        <div class="encoder-subtitle">
+                            <span>Worker lifecycle</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label for="session-timeout-input">Session Timeout</label>
+                    <input id="session-timeout-input" type="number" min="1" step="1"
+                           aria-invalid="@(SessionTimingError != null ? "true" : "false")"
+                           value="@_selectedSessionTimeoutSeconds"
+                           @onchange="@(e => _selectedSessionTimeoutSeconds = (string)e.Value)" />
+                    <span>sec (how long a worker runs with no viewer before it stops - tabs and logins are kept, see Manifest TTL)</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="manifest-ttl-input">Manifest TTL</label>
+                    <input id="manifest-ttl-input" type="number" min="1" step="1"
+                           aria-invalid="@(SessionTimingError != null ? "true" : "false")"
+                           aria-describedby="session-timing-error"
+                           value="@_selectedManifestTtlSeconds"
+                           @onchange="@(e => _selectedManifestTtlSeconds = (string)e.Value)" />
+                    <span>sec (how long a timed-out tenant's tabs and logins are kept before being deleted)</span>
+                </div>
+                @if (SessionTimingError is { } timingError)
+                {
+                    <div id="session-timing-error" class="error" role="alert">@timingError</div>
+                }
+
+                <div class="encoder-audio-row">
+                    <label>Isolation Mode</label>
+                    <strong>@IsolationModeLabel</strong>
+                    <span>fixed at broker launch via --isolation-mode-session. Switching it wipes the worker cache (all logins) on the next broker start.</span>
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 4)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3 5h18v14H3z M3 9h18 M7 13l2 2-2 2 M12 17h4"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Executables</div>
+                        <div class="encoder-subtitle">
+                            <span>Broker and worker exe paths - applies on the next Start/Restart</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="path-form">
+                    <label>Broker exe (@ExePaths.BrokerExeName)
+                        <input type="text" spellcheck="false" @bind="_brokerPathInput"
+                               placeholder="@PathPlaceholder("CEFGLUE_BROKER_EXE_PATH")" />
+                        <span class="path-status">Running: @(Supervisor.IsRunning ? Supervisor.RunningExePath ?? "unknown (attached)" : "-")</span>
+                    </label>
+                    <label>Worker exe (@ExePaths.WorkerExeName)
+                        <input type="text" spellcheck="false" @bind="_workerPathInput"
+                               placeholder="@PathPlaceholder("CEFGLUE_WORKER_EXE_PATH")" />
+                        <span class="path-status">In use by Broker: @(Supervisor.IsRunning ? _activeWorkerExePath ?? "unknown" : "-")</span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <button class="btn" @onclick="SavePaths">Save paths</button>
+                    @if (_pathError != null)
+                    {
+                        <span class="error">@_pathError</span>
+                    }
+                    else if (_pathMessage != null)
+                    {
+                        <span class="pending-note">@_pathMessage</span>
+                    }
+                </div>
+                @if (PathsNeedRestart)
+                {
+                    <div class="control-row">
+                        <span class="pending-note">Saved paths differ from the running ones - restart the broker to use them.</span>
+                    </div>
+                }
+            </div>
+        </div>
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 5)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Admin Password</div>
+                        <div class="encoder-subtitle">
+                            <span>Changing it signs out every Admin session, this one included</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body admin-password-body" style="flex-direction: column;">
+                <div class="password-form">
+                    <label>Current password
+                        <input type="password" autocomplete="current-password" @bind="_currentPassword" />
+                    </label>
+                    <label>New password
+                        <input type="password" autocomplete="new-password" @bind="_newPassword" />
+                    </label>
+                    <label>Confirm new password
+                        <input type="password" autocomplete="new-password" @bind="_confirmPassword" />
+                    </label>
+                </div>
+                <div class="control-row">
+                    <button class="btn" @onclick="ChangePassword">Change password</button>
+                    @if (_passwordError != null)
+                    {
+                        <span class="error">@_passwordError</span>
+                    }
+                </div>
+            </div>
+        </div>
+        </div>
+
+        @if (HasUnappliedSettings)
+        {
+            <div class="control-row">
+                <span class="pending-note">One or more fields have changed - restart the broker to apply them.</span>
+            </div>
+        }
+
+        <div class="control-row">
+            @if (_starting || _restarting)
+            {
+                <button class="btn" disabled>@(_starting ? "Starting…" : "Restarting…")</button>
+            }
+            else if (!Supervisor.IsRunning)
+            {
+                <button class="btn" @onclick="StartWithCurrentSettings" disabled="@(Paths.BrokerStartBlocker != null || SessionTimingError != null)">Start</button>
+                @if (Paths.BrokerStartBlocker is { } startBlocker)
+                {
+                    <span class="error">@startBlocker Set it in the Executables tab.</span>
+                }
+                else if (SessionTimingError != null)
+                {
+                    <span class="error">Fix Session Timeout / Manifest TTL in the Session &amp; Cleanup tab first.</span>
+                }
+            }
+            else if (_confirmingStop)
+            {
+                <span>Stop the broker?</span>
+                <button class="btn btn-danger" @onclick="ConfirmStop">Yes, stop</button>
+                <button class="btn" @onclick="() => _confirmingStop = false">Cancel</button>
+            }
+            else if (_confirmingRestart)
+            {
+                <span>
+                    Restart the broker? Already-registered workers survive this.
+                    @if (HasUnappliedSettings)
+                    {
+                        <text> Also applies the CEF Settings/Default Encoder/Connection Mode/Audio Bitrate selections above.</text>
+                    }
+                </span>
+                <button class="btn btn-danger" @onclick="ConfirmRestart" disabled="@(SessionTimingError != null)">Yes, restart</button>
+                @if (SessionTimingError != null)
+                {
+                    <span class="error">Fix Session Timeout / Manifest TTL in the Session &amp; Cleanup tab first.</span>
+                }
+                <button class="btn" @onclick="() => _confirmingRestart = false">Cancel</button>
+            }
+            else
+            {
+                <button class="btn btn-danger" @onclick="() => _confirmingStop = true">Stop</button>
+                <button class="btn btn-danger" @onclick="() => _confirmingRestart = true">Restart</button>
+            }
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Workers (@_workers.Count(w => w.Status != "Sleeping") running, @_workers.Count(w => w.Status == "Sleeping") sleeping)</h2>
+
+        @if (_workers.Count == 0)
+        {
+            <p class="empty">No workers or sleeping sessions right now.</p>
+        }
+        else
+        {
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tenant</th>
+                        <th>Status</th>
+                        <th>Address</th>
+                        <th>CPU</th>
+                        <th>Sessions</th>
+                        <th>OS</th>
+                        <th>Client IP</th>
+                        <th>Created</th>
+                        <th>Last beat / asleep</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var worker in _workers)
+                    {
+                        <tr>
+                            <td class="mono">@worker.TenantId</td>
+                            <td><span class="pill @(worker.Status == "Healthy" ? "healthy" : worker.Status == "Sleeping" ? "sleeping" : "degraded")">@worker.Status</span></td>
+                            <td class="mono">@(worker.Status == "Sleeping" ? "-" : worker.Address)</td>
+                            <td class="mono">@(worker.Status == "Sleeping" ? "-" : worker.Cpu.ToString("F1") + "%")</td>
+                            <td class="mono">@worker.Sessions</td>
+                            <td>@(worker.ClientOs ?? "-")</td>
+                            <td class="mono">@(worker.ClientIp ?? "-")</td>
+                            <td class="mono" title="@(worker.CreatedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))">@(worker.CreatedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                            <td class="mono">@SecondsAgo(worker.LastHeartbeatUtc)</td>
+                            <td>
+                                @if (_confirmingKillTenantId == worker.TenantId)
+                                {
+                                    <span class="kill-note">Ends the session: tabs and logins are deleted.</span>
+                                    <button class="btn btn-danger" @onclick="() => ConfirmKill(worker.TenantId)">Confirm kill</button>
+                                    <button class="btn" @onclick="() => _confirmingKillTenantId = null">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-danger" @onclick="() => _confirmingKillTenantId = worker.TenantId">Kill</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_lastKillError))
+        {
+            <p class="error">@_lastKillError</p>
+        }
+    </section>
+</div>
+
+@code {
+    private List<EncoderManifest> _encoderManifests = new();
+    private string _encoderManifestsWorkerPath;
+
+    private readonly Dictionary<string, string> _encoderValues = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly (string Value, string Label)[] ConnectionModeOptions =
+    {
+        ("relay", "Relay (dynamic parameter)"),
+        ("port", "Direct connect (dynamic port)"),
+    };
+
+    private string _activeIsolationMode;
+    private IsolationModeSwitchInfo _isolationSwitch;
+
+    private static DateTime? _dismissedIsolationSwitchAtUtc;
+
+    private string IsolationModeLabel => _activeIsolationMode switch
+    {
+        "session" => "Per session",
+        "tenant" => "Per tenant",
+        _ => "- (broker not running)",
+    };
+
+    private string _brokerPathInput;
+    private string _workerPathInput;
+    private string _activeWorkerExePath;
+    private string _pathError;
+    private string _pathMessage;
+
+    private static string PathPlaceholder(string envVar) =>
+        Environment.GetEnvironmentVariable(envVar) is { Length: > 0 } fallback
+            ? $"empty = {envVar}: {fallback}"
+            : "full path, e.g. D:\\...\\bin\\x64\\Release\\net10.0\\...exe";
+
+    private bool PathsNeedRestart =>
+        Supervisor.IsRunning
+        && ((Supervisor.RunningExePath != null && !string.Equals(Supervisor.RunningExePath, Paths.BrokerExePath, StringComparison.OrdinalIgnoreCase))
+            || (_activeWorkerExePath != null && !string.Equals(_activeWorkerExePath, Paths.WorkerExePath, StringComparison.OrdinalIgnoreCase)));
+
+    private void SavePaths()
+    {
+        static string Clean(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Trim('"').Trim();
+
+        var broker = Clean(_brokerPathInput);
+        var worker = Clean(_workerPathInput);
+        string brokerWarning = null, workerWarning = null;
+        var brokerError = broker == null ? null : ExePaths.Validate(broker, ExePaths.BrokerExeName, out brokerWarning);
+        var workerError = worker == null ? null : ExePaths.Validate(worker, ExePaths.WorkerExeName, out workerWarning);
+
+        _pathMessage = null;
+        _pathError = brokerError != null ? $"Broker exe: {brokerError}"
+            : workerError != null ? $"Worker exe: {workerError}"
+            : null;
+        if (_pathError != null)
+        {
+            return;
+        }
+
+        AdminSettings.Update(s =>
+        {
+            s.BrokerExePath = broker;
+            s.WorkerExePath = worker;
+        });
+        _brokerPathInput = broker;
+        _workerPathInput = worker;
+
+        var warnings = string.Join(" ", new[] { brokerWarning == null ? null : $"Broker exe: {brokerWarning}", workerWarning == null ? null : $"Worker exe: {workerWarning}" }.Where(w => w != null));
+        _pathMessage = warnings.Length > 0 ? $"Saved. Note - {warnings}" : "Saved.";
+        Console.WriteLine($"[Admin] Exe paths saved - broker: {broker ?? "(env fallback)"}, worker: {worker ?? "(env fallback)"}.");
+    }
+
+    private string _currentPassword;
+    private string _newPassword;
+    private string _confirmPassword;
+    private string _passwordError;
+
+    private void ChangePassword()
+    {
+        if (!Auth.Verify(_currentPassword))
+        {
+            _passwordError = "Current password is wrong.";
+            return;
+        }
+
+        _passwordError = AdminAuth.ValidateNewPassword(_newPassword, _confirmPassword);
+        if (_passwordError != null)
+        {
+            return;
+        }
+
+        Auth.SetPassword(_newPassword);
+        Console.WriteLine("[Admin] Admin password changed - all existing sessions signed out.");
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+
+    private PeriodicTimer _timer;
+    private CancellationTokenSource _cts = new();
+    private Task _refreshLoopTask;
+
+    private List<WorkerInfo> _workers = new();
+    private string _selectedEncoder;
+    private string _activeEncoder;
+    private string _pendingEncoder;
+    private string _selectedMode;
+    private string _activeMode;
+    private string _pendingMode;
+    private string _selectedAudioBitrateKbps;
+    private string _activeAudioBitrateKbps;
+    private string _pendingAudioBitrateKbps;
+    private bool _selectedDisableGpu;
+    private string _activeDisableGpu;
+    private string _pendingDisableGpu;
+    private bool _disableGpuSeeded;
+    private bool _selectedTextureEnable;
+    private string _activeTextureEnable;
+    private string _pendingTextureEnable;
+    private bool _textureEnableSeeded;
+    private string _selectedDiskCacheSizeBytes;
+    private string _activeDiskCacheSizeBytes;
+    private string _pendingDiskCacheSizeBytes;
+    private string _selectedMediaCacheSizeBytes;
+
+    private const string DefaultUrlFallback = "https://www.google.com";
+    private string _selectedDefaultUrl;
+    private string _activeDefaultUrl;
+    private bool _selectedNewPageUseLastUrl = true;
+    private bool _newPageUseLastUrlSeeded;
+    private string _activeNewPageUseLastUrl;
+    private string _activeMediaCacheSizeBytes;
+    private string _pendingMediaCacheSizeBytes;
+
+    private static string BytesToMb(string bytes) =>
+        long.TryParse(bytes, out var b) ? (b / 1_000_000).ToString() : "";
+
+    private static string MbToBytes(string mb) =>
+        long.TryParse(mb, out var m) ? (m * 1_000_000).ToString() : "";
+
+    private string SelectedDiskCacheSizeMb
+    {
+        get => BytesToMb(_selectedDiskCacheSizeBytes);
+        set => _selectedDiskCacheSizeBytes = MbToBytes(value);
+    }
+
+    private string SelectedMediaCacheSizeMb
+    {
+        get => BytesToMb(_selectedMediaCacheSizeBytes);
+        set => _selectedMediaCacheSizeBytes = MbToBytes(value);
+    }
+
+    private bool _activeUseWebRtc;
+    private string _selectedWebRtcPacingBps;
+    private string _activeWebRtcPacingBps;
+    private string _pendingWebRtcPacingBps;
+    private string _selectedWebRtcIceServers;
+    private string _activeWebRtcIceServers;
+    private string _pendingWebRtcIceServers;
+
+    private string _selectedSessionTimeoutSeconds;
+    private string _activeSessionTimeoutSeconds;
+    private string _pendingSessionTimeoutSeconds;
+    private string _selectedManifestTtlSeconds;
+    private string _activeManifestTtlSeconds;
+    private string _pendingManifestTtlSeconds;
+
+    private List<string> _iceServerEntries = new();
+    private bool _iceServerEntriesSeeded;
+    private string _selectedIceServerEntry;
+    private string _newIceServerUri = "";
+    private string _newIceServerUsername = "";
+    private string _newIceServerPassword = "";
+
+    private string[] _availableEncoders = Array.Empty<string>();
+
+    private bool _confirmingStop;
+    private bool _confirmingRestart;
+    private bool _starting;
+    private bool _restarting;
+    private string _confirmingKillTenantId;
+    private string _lastKillError;
+
+    private string StatusText
+    {
+        get
+        {
+            if (Supervisor.IsRunning) return "Running";
+            if (Supervisor.Crashed) return $"Crashed (exit code {Supervisor.LastExitCode})";
+            return "Stopped";
+        }
+    }
+
+    private string UptimeText => Supervisor.StartedUtc is { } started
+        ? (DateTime.UtcNow - started).ToString(@"hh\:mm\:ss")
+        : "-";
+
+    private static string Norm(string s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private bool ShowPendingEncoderNote => Norm(_selectedEncoder) != Norm(_activeEncoder);
+
+    private IEnumerable<(string Value, string Label)> VisibleEncoderOptions
+    {
+        get
+        {
+            yield return (null, "unset (jpg fallback)");
+
+            var listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var manifest in _encoderManifests)
+            {
+                if (_availableEncoders.Length == 0
+                    || _availableEncoders.Contains(manifest.Id)
+                    || !manifest.IsInstalled
+                    || manifest.Id == _selectedEncoder
+                    || manifest.Id == _activeEncoder
+                    || manifest.Id == _pendingEncoder)
+                {
+                    listed.Add(manifest.Id);
+                    yield return (manifest.Id, manifest.IsInstalled ? manifest.DisplayName : $"{manifest.DisplayName} (not downloaded)");
+                }
+            }
+
+            foreach (var id in new[] { _selectedEncoder, _activeEncoder, _pendingEncoder })
+            {
+                if (!string.IsNullOrEmpty(id) && listed.Add(id))
+                {
+                    yield return (id, $"{id} (not installed)");
+                }
+            }
+        }
+    }
+
+    private EncoderManifest SelectedEncoderManifest
+        => _encoderManifests.FirstOrDefault(m => string.Equals(m.Id, _selectedEncoder, StringComparison.OrdinalIgnoreCase));
+
+    private string ActiveEncoderLibraryInfo => SelectedEncoderManifest?.Library;
+
+    private bool HasTunableEncoderSettings => SelectedEncoderManifest?.HasTunableSettings == true;
+
+    private void ResetActiveEncoderSettings()
+    {
+        if (SelectedEncoderManifest is { } manifest)
+        {
+            foreach (var setting in manifest.Settings)
+            {
+                _encoderValues[manifest.EnvVarName(setting)] = setting.Default ?? "";
+            }
+        }
+        OnEncoderSettingsChanged();
+    }
+
+    private void RefreshEncoderManifests(Dictionary<string, string> active, Dictionary<string, string> pending)
+    {
+        var workerPath = Paths.WorkerExePath;
+        if (!string.Equals(workerPath, _encoderManifestsWorkerPath, StringComparison.OrdinalIgnoreCase) || _encoderManifests.Count == 0)
+        {
+            _encoderManifests = EncoderManifestStore.Load(workerPath);
+            _encoderManifestsWorkerPath = workerPath;
+        }
+
+        foreach (var manifest in _encoderManifests.Where(m => m.HasTunableSettings))
+        {
+            foreach (var setting in manifest.Settings)
+            {
+                var envVar = manifest.EnvVarName(setting);
+                if (_encoderValues.ContainsKey(envVar))
+                {
+                    continue;
+                }
+
+                _encoderValues[envVar] =
+                    pending != null && pending.TryGetValue(envVar, out var p) && !string.IsNullOrEmpty(p) ? p
+                    : active != null && active.TryGetValue(envVar, out var a) && !string.IsNullOrEmpty(a) ? a
+                    : setting.Default ?? "";
+            }
+        }
+    }
+
+    private Dictionary<string, string> SelectedEncoderSettingsForSave()
+    {
+        if (SelectedEncoderManifest is not { HasTunableSettings: true } manifest)
+        {
+            return null;
+        }
+
+        return manifest.Settings
+            .Select(manifest.EnvVarName)
+            .ToDictionary(envVar => envVar, envVar => _encoderValues.TryGetValue(envVar, out var value) ? value : "");
+    }
+
+    private bool ShowPendingModeNote => _selectedMode != _activeMode;
+
+    private bool ShowPendingAudioBitrateNote => _selectedAudioBitrateKbps != _activeAudioBitrateKbps;
+
+    private bool ShowPendingWebRtcPacingBpsNote => _activeUseWebRtc && Norm(_selectedWebRtcPacingBps) != Norm(_activeWebRtcPacingBps);
+
+    private bool ShowPendingWebRtcIceServersNote => _activeUseWebRtc && Norm(_selectedWebRtcIceServers) != Norm(_activeWebRtcIceServers);
+
+    private bool ShowPendingSessionTimeoutNote => Norm(_selectedSessionTimeoutSeconds) != (Norm(_activeSessionTimeoutSeconds) ?? "300");
+
+    private string SessionTimingError
+    {
+        get
+        {
+            if (!int.TryParse(Norm(_selectedSessionTimeoutSeconds) ?? "300", out var timeout) || timeout < 1)
+            {
+                return "Session Timeout must be a whole number of seconds, 1 or more.";
+            }
+
+            if (!int.TryParse(Norm(_selectedManifestTtlSeconds) ?? "900", out var ttl) || ttl < 1)
+            {
+                return "Manifest TTL must be a whole number of seconds, 1 or more.";
+            }
+
+            return ttl < timeout
+                ? $"Manifest TTL ({ttl}s) can't be shorter than Session Timeout ({timeout}s) - a timed-out session must stay restorable at least as long as it waited."
+                : null;
+        }
+    }
+
+    private bool ShowPendingManifestTtlNote => Norm(_selectedManifestTtlSeconds) != (Norm(_activeManifestTtlSeconds) ?? "900");
+
+    private bool ShowPendingDisableGpuNote => _selectedDisableGpu != (_activeDisableGpu == "1");
+
+    private bool ShowPendingTextureEnableNote => (_selectedTextureEnable ? "1" : null) != Norm(_activeTextureEnable);
+
+    private bool ShowPendingDiskCacheSizeBytesNote => Norm(_selectedDiskCacheSizeBytes) != Norm(_activeDiskCacheSizeBytes);
+
+    private bool ShowPendingMediaCacheSizeBytesNote => Norm(_selectedMediaCacheSizeBytes) != Norm(_activeMediaCacheSizeBytes);
+
+    private bool ShowPendingDefaultUrlNote => (Norm(_selectedDefaultUrl) ?? DefaultUrlFallback) != (Norm(_activeDefaultUrl) ?? DefaultUrlFallback);
+
+    private bool ShowPendingNewPageUseLastUrlNote => (_selectedNewPageUseLastUrl ? "1" : "0") != (Norm(_activeNewPageUseLastUrl) ?? "1");
+
+    private int _settingsTab;
+    private static readonly string[] SettingsTabNames = { "CEF Settings", "Encoder Settings", "Transport", "Session & Cleanup", "Executables", "Admin Password" };
+
+    private bool SettingsTabHasPending(int tab) => tab switch
+    {
+        0 => ShowPendingDisableGpuNote || ShowPendingTextureEnableNote || ShowPendingDiskCacheSizeBytesNote || ShowPendingMediaCacheSizeBytesNote
+             || ShowPendingDefaultUrlNote || ShowPendingNewPageUseLastUrlNote,
+        1 => ShowPendingEncoderNote || ShowPendingAudioBitrateNote,
+        2 => ShowPendingModeNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote,
+        3 => ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote || SessionTimingError != null,
+        4 => PathsNeedRestart || Paths.BrokerStartBlocker != null,
+        _ => false,
+    };
+
+    private bool HasUnappliedSettings => ShowPendingEncoderNote || ShowPendingModeNote || ShowPendingAudioBitrateNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote
+        || ShowPendingDisableGpuNote || ShowPendingTextureEnableNote || ShowPendingDiskCacheSizeBytesNote || ShowPendingMediaCacheSizeBytesNote
+        || ShowPendingDefaultUrlNote || ShowPendingNewPageUseLastUrlNote
+        || ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote;
+
+    protected override void OnInitialized()
+    {
+        var saved = AdminSettings.Snapshot();
+        _brokerPathInput = saved.BrokerExePath;
+        _workerPathInput = saved.WorkerExePath;
+
+        _encoderManifests = EncoderManifestStore.Load(Paths.WorkerExePath);
+        _encoderManifestsWorkerPath = Paths.WorkerExePath;
+
+        Supervisor.StatusChanged += OnSupervisorStatusChanged;
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        _refreshLoopTask = RefreshLoopAsync();
+    }
+
+    private void OnSupervisorStatusChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        try
+        {
+            await RefreshOnceAsync();
+
+            while (await _timer.WaitForNextTickAsync(_cts.Token))
+            {
+                await RefreshOnceAsync();
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+        }
+    }
+
+    private async Task RefreshOnceAsync()
+    {
+        var workers = await WorkerSource.GetWorkersAsync();
+        var (active, pending) = await WorkerSource.GetSettingsAsync();
+        var (activeMode, pendingMode) = await WorkerSource.GetConnectionModeAsync();
+        var (activeAudioBitrateKbps, pendingAudioBitrateKbps) = await WorkerSource.GetAudioBitrateKbpsAsync();
+        var (activeDisableGpu, pendingDisableGpu) = await WorkerSource.GetDisableGpuAsync();
+        var (activeTextureEnable, pendingTextureEnable) = await WorkerSource.GetTextureEnableAsync();
+        var (activeDiskCacheSizeBytes, pendingDiskCacheSizeBytes) = await WorkerSource.GetDiskCacheSizeBytesAsync();
+        var (activeMediaCacheSizeBytes, pendingMediaCacheSizeBytes) = await WorkerSource.GetMediaCacheSizeBytesAsync();
+        var (activeDefaultUrl, pendingDefaultUrl, activeNewPageUseLastUrl, pendingNewPageUseLastUrl) = await WorkerSource.GetNewPageUrlSettingsAsync();
+        var activeUseWebRtc = await WorkerSource.GetUseWebRtcAsync();
+        var (activeWebRtcPacingBps, pendingWebRtcPacingBps) = await WorkerSource.GetWebRtcPacingBpsAsync();
+        var (activeWebRtcIceServers, pendingWebRtcIceServers) = await WorkerSource.GetWebRtcIceServersAsync();
+        var (activeSessionTimeoutSeconds, pendingSessionTimeoutSeconds) = await WorkerSource.GetSessionTimeoutSecondsAsync();
+        var (activeManifestTtlSeconds, pendingManifestTtlSeconds) = await WorkerSource.GetManifestTtlSecondsAsync();
+        var (activeEncoderSettings, pendingEncoderSettings) = await WorkerSource.GetEncoderSettingsAsync();
+        var availableEncoders = await WorkerSource.GetAvailableEncodersAsync();
+        var (cacheSizeBytes, cacheTenantCount, standaloneCacheSizeBytes) = await WorkerSource.GetCacheInfoAsync();
+        var activeWorkerExePath = await WorkerSource.GetActiveWorkerExePathAsync();
+        var (activeIsolationMode, isolationSwitch) = await WorkerSource.GetIsolationModeAsync();
+
+        await InvokeAsync(() =>
+        {
+            _workers = workers.OrderBy(w => w.TenantId).ToList();
+            _activeEncoder = active;
+            _pendingEncoder = pending;
+            _availableEncoders = availableEncoders;
+            _activeMode = activeMode;
+            _pendingMode = pendingMode;
+            _activeAudioBitrateKbps = activeAudioBitrateKbps;
+            _pendingAudioBitrateKbps = pendingAudioBitrateKbps;
+            _activeDisableGpu = activeDisableGpu;
+            _pendingDisableGpu = pendingDisableGpu;
+            _activeTextureEnable = activeTextureEnable;
+            _pendingTextureEnable = pendingTextureEnable;
+            _activeDiskCacheSizeBytes = activeDiskCacheSizeBytes;
+            _pendingDiskCacheSizeBytes = pendingDiskCacheSizeBytes;
+            _activeMediaCacheSizeBytes = activeMediaCacheSizeBytes;
+            _pendingMediaCacheSizeBytes = pendingMediaCacheSizeBytes;
+            _activeDefaultUrl = activeDefaultUrl;
+            _activeNewPageUseLastUrl = activeNewPageUseLastUrl;
+            _selectedDefaultUrl ??= pendingDefaultUrl ?? activeDefaultUrl ?? DefaultUrlFallback;
+            if (!_newPageUseLastUrlSeeded)
+            {
+                _selectedNewPageUseLastUrl = (pendingNewPageUseLastUrl ?? activeNewPageUseLastUrl ?? "1") != "0";
+                _newPageUseLastUrlSeeded = true;
+            }
+            _activeUseWebRtc = string.Equals(activeUseWebRtc, "1", StringComparison.OrdinalIgnoreCase);
+            _activeWebRtcPacingBps = activeWebRtcPacingBps;
+            _pendingWebRtcPacingBps = pendingWebRtcPacingBps;
+            _activeWebRtcIceServers = activeWebRtcIceServers;
+            _pendingWebRtcIceServers = pendingWebRtcIceServers;
+            _activeSessionTimeoutSeconds = activeSessionTimeoutSeconds;
+            _pendingSessionTimeoutSeconds = pendingSessionTimeoutSeconds;
+            _activeManifestTtlSeconds = activeManifestTtlSeconds;
+            _pendingManifestTtlSeconds = pendingManifestTtlSeconds;
+            _cacheSizeBytes = cacheSizeBytes;
+            _cacheTenantCount = cacheTenantCount;
+            _standaloneCacheSizeBytes = standaloneCacheSizeBytes;
+            _activeWorkerExePath = activeWorkerExePath;
+            _activeIsolationMode = activeIsolationMode;
+            _isolationSwitch = isolationSwitch;
+
+            _selectedEncoder ??= pending ?? active;
+            _selectedMode ??= pendingMode ?? activeMode ?? "relay";
+            _selectedAudioBitrateKbps ??= pendingAudioBitrateKbps ?? activeAudioBitrateKbps ?? "48";
+            _selectedWebRtcPacingBps ??= pendingWebRtcPacingBps ?? activeWebRtcPacingBps ?? "500000000";
+            _selectedWebRtcIceServers ??= pendingWebRtcIceServers ?? activeWebRtcIceServers ?? "";
+            _selectedSessionTimeoutSeconds ??= pendingSessionTimeoutSeconds ?? activeSessionTimeoutSeconds ?? "300";
+            _selectedManifestTtlSeconds ??= pendingManifestTtlSeconds ?? activeManifestTtlSeconds ?? "900";
+            _selectedDiskCacheSizeBytes ??= pendingDiskCacheSizeBytes ?? activeDiskCacheSizeBytes ?? "30000000";
+            _selectedMediaCacheSizeBytes ??= pendingMediaCacheSizeBytes ?? activeMediaCacheSizeBytes ?? "30000000";
+
+            if (!_disableGpuSeeded)
+            {
+                _selectedDisableGpu = (pendingDisableGpu ?? activeDisableGpu ?? "1") == "1";
+                _disableGpuSeeded = true;
+            }
+
+            if (!_textureEnableSeeded)
+            {
+                _selectedTextureEnable = !string.IsNullOrEmpty(pendingTextureEnable ?? activeTextureEnable);
+                _textureEnableSeeded = true;
+            }
+
+            if (!_iceServerEntriesSeeded)
+            {
+                _iceServerEntries = string.IsNullOrEmpty(_selectedWebRtcIceServers)
+                    ? new List<string>()
+                    : _selectedWebRtcIceServers.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                _iceServerEntriesSeeded = true;
+            }
+
+            RefreshEncoderManifests(activeEncoderSettings, pendingEncoderSettings);
+
+            StateHasChanged();
+        });
+    }
+
+    private void OnEncoderSettingsChanged() => StateHasChanged();
+
+    private long _cacheSizeBytes;
+    private int _cacheTenantCount;
+    private long _standaloneCacheSizeBytes;
+    private bool _clearEverything;
+    private bool _clearingCache;
+    private string _clearCacheError;
+    private bool _confirmingClearCache;
+
+    private bool HasAnyCacheToClear => _cacheSizeBytes > 0 || (_clearEverything && _standaloneCacheSizeBytes > 0);
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:0.##} GB";
+        if (bytes >= 1_048_576) return $"{bytes / 1_048_576.0:0.##} MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:0.##} KB";
+        return $"{bytes} B";
+    }
+
+    private async Task ClearCacheAsync()
+    {
+        _confirmingClearCache = false;
+        _clearingCache = true;
+        _clearCacheError = null;
+        StateHasChanged();
+
+        var (success, error, _) = await WorkerSource.ClearCacheAsync(_clearEverything);
+        if (!success)
+        {
+            _clearCacheError = error;
+        }
+
+        _clearingCache = false;
+        await RefreshOnceAsync();
+    }
+
+    private async Task<bool> PersistCurrentSettingsAsync()
+    {
+        var encoderSettings = SelectedEncoderSettingsForSave();
+        return await WorkerSource.SaveSettingsAsync(_selectedEncoder, _selectedMode, encoderSettings, _selectedAudioBitrateKbps, _selectedWebRtcPacingBps, _selectedWebRtcIceServers,
+            !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0", _selectedTextureEnable ? "1" : "", _selectedDiskCacheSizeBytes, _selectedMediaCacheSizeBytes,
+            _selectedSessionTimeoutSeconds, _selectedManifestTtlSeconds,
+            string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl, _selectedNewPageUseLastUrl ? "1" : "0");
+    }
+
+    private void AddIceServer()
+    {
+        var uri = _newIceServerUri?.Trim();
+        if (string.IsNullOrEmpty(uri))
+        {
+            return;
+        }
+
+        if (uri.StartsWith("turn:", StringComparison.OrdinalIgnoreCase) || uri.StartsWith("turns:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrEmpty(_newIceServerUsername) || !string.IsNullOrEmpty(_newIceServerPassword))
+            {
+                var schemeEnd = uri.IndexOf(':') + 1;
+                uri = uri[..schemeEnd] + Uri.EscapeDataString(_newIceServerUsername ?? "") + ":" + Uri.EscapeDataString(_newIceServerPassword ?? "") + "@" + uri[schemeEnd..];
+            }
+        }
+
+        _iceServerEntries.Add(uri);
+        _selectedWebRtcIceServers = string.Join(",", _iceServerEntries);
+        _newIceServerUri = "";
+        _newIceServerUsername = "";
+        _newIceServerPassword = "";
+    }
+
+    private void RemoveSelectedIceServer()
+    {
+        if (_selectedIceServerEntry == null)
+        {
+            return;
+        }
+
+        _iceServerEntries.Remove(_selectedIceServerEntry);
+        _selectedWebRtcIceServers = string.Join(",", _iceServerEntries);
+        _selectedIceServerEntry = null;
+    }
+
+    private void ResetIceServersToDefault()
+    {
+        _iceServerEntries = new List<string>();
+        _selectedWebRtcIceServers = "";
+        _selectedIceServerEntry = null;
+    }
+
+    private async Task StartWithCurrentSettings()
+    {
+        if (SessionTimingError != null)
+        {
+            return;
+        }
+
+        _starting = true;
+        StateHasChanged();
+        try
+        {
+            var persisted = await PersistCurrentSettingsAsync();
+            await Supervisor.StopAsync();
+            await Supervisor.StartAsync();
+
+            if (!persisted)
+            {
+                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+                while (DateTime.UtcNow < deadline && Supervisor.IsRunning)
+                {
+                    if (await PersistCurrentSettingsAsync())
+                    {
+                        await Supervisor.RestartAsync();
+                        break;
+                    }
+
+                    await Task.Delay(TimeSpan.FromMilliseconds(500));
+                }
+            }
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private async Task ConfirmStop()
+    {
+        _confirmingStop = false;
+        await Supervisor.StopAsync();
+    }
+
+    private EncoderManifest WebRtcMissingEncoder
+    {
+        get
+        {
+            if (!_activeUseWebRtc && !Supervisor.LaunchesWithWebRtc)
+            {
+                return null;
+            }
+
+            var id = Norm(_selectedEncoder) ?? Norm(_activeEncoder) ?? "openh264";
+            var manifest = _encoderManifests.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase));
+            return manifest is { Download: not null, IsInstalled: false } ? manifest : null;
+        }
+    }
+
+    private bool _bannerBusy;
+    private string _bannerMessage;
+    private string _justInstalledEncoder;
+
+    private async Task DownloadFromBannerAsync(EncoderManifest manifest)
+    {
+        _bannerBusy = true;
+        _bannerMessage = null;
+        StateHasChanged();
+        try
+        {
+            var (ok, message) = await EncoderDownloader.InstallAsync(manifest);
+            if (ok)
+            {
+                _justInstalledEncoder = manifest.DisplayName;
+                if (Norm(_selectedEncoder) == null) _selectedEncoder = manifest.Id;
+            }
+            else
+            {
+                _bannerMessage = message;
+            }
+        }
+        finally
+        {
+            _bannerBusy = false;
+        }
+    }
+
+    private async Task RestartAfterInstallAsync()
+    {
+        await ConfirmRestart();
+        _justInstalledEncoder = null;
+    }
+
+    private async Task ConfirmRestart()
+    {
+        if (SessionTimingError != null)
+        {
+            return;
+        }
+
+        _confirmingRestart = false;
+        _restarting = true;
+        StateHasChanged();
+        try
+        {
+            await PersistCurrentSettingsAsync();
+            await Supervisor.RestartAsync();
+        }
+        finally
+        {
+            _restarting = false;
+        }
+    }
+
+    private async Task ConfirmKill(string tenantId)
+    {
+        _confirmingKillTenantId = null;
+
+        var (success, error) = await WorkerSource.KillWorkerAsync(tenantId);
+        _lastKillError = success ? null : error;
+    }
+
+    private static string SecondsAgo(DateTime utc)
+    {
+        var seconds = Math.Max(0, (int)(DateTime.UtcNow - utc).TotalSeconds);
+        return seconds < 60 ? $"{seconds}s ago" : $"{seconds / 60}m {seconds % 60}s ago";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Supervisor.StatusChanged -= OnSupervisorStatusChanged;
+        _cts.Cancel();
+
+        if (_refreshLoopTask != null)
+        {
+            try
+            {
+                await _refreshLoopTask;
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+            {
+            }
+        }
+
+        _timer?.Dispose();
+        _cts.Dispose();
+    }
+}

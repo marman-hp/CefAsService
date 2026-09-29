@@ -1,0 +1,15 @@
+<Project>
+
+  <!-- Encoder plugins ship prebuilt in lib/plugins/encoders/<name>/ and are copied next to the
+       worker at build time, where it loads them at startup. -->
+  <ItemGroup>
+    <_EncoderPluginFile Include="$(MSBuildThisFileDirectory)..\lib\plugins\encoders\**\*" />
+  </ItemGroup>
+
+  <Target Name="CopyEncoderPlugins" AfterTargets="Build">
+    <Copy SourceFiles="@(_EncoderPluginFile)"
+          DestinationFiles="@(_EncoderPluginFile->'$(OutDir)plugins\encoders\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

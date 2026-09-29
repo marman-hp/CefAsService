@@ -1,0 +1,139 @@
+<div class="relative shrink-0">
+<form id="addressForm" class="flex items-center gap-2 px-3 py-2 border-b border-neutral-800 bg-neutral-950 overflow-x-auto">
+    <button id="sidebarToggle" type="button" title="Toggle sidebar"
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="1.5" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="5" y1="1.5" x2="5" y2="12.5" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+    </button>
+    <button id="fullscreenToggle" type="button" title="Hide toolbar/sidebar (Esc to exit)"
+            data-compact-class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center"
+            data-row-class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60"
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg id="fullscreenIcon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+            <path d="M1 5V1.5H4.5M13 5V1.5H9.5M1 9V12.5H4.5M13 9V12.5H9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="amRowLabel hidden flex-1">Hide toolbar</span>
+        <span id="hideToolbarPill" class="hidden shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400">Off</span>
+    </button>
+    <button id="realFullscreenToggle" type="button" title="Toggle browser fullscreen"
+            data-compact-class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center"
+            data-row-class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60"
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg id="realFullscreenIcon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+            <rect x="1" y="2" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="4.5" y1="12.5" x2="9.5" y2="12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="7" y1="10" x2="7" y2="12.5" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+        <span class="amRowLabel hidden flex-1">Fullscreen</span>
+        <span id="realFullscreenPill" class="hidden shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400">Off</span>
+    </button>
+    <button id="muteToggle" type="button" title="Toggle sound"
+            data-compact-class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center"
+            data-row-class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60"
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg id="muteIcon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+            <path d="M1 5.5H3.5L6.5 2.5V11.5L3.5 8.5H1V5.5Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+            <path id="muteWaves" d="M8.5 4.5C9.5 5.5 9.5 8.5 8.5 9.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+        <span class="amRowLabel hidden flex-1">Sound</span>
+        <span id="mutePill" class="hidden shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-600 text-white">On</span>
+    </button>
+    <button id="overlayToggle" type="button" title="Toggle overlay HUD"
+            data-compact-class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center"
+            data-row-class="w-full flex items-center gap-3 px-3 py-3 text-left text-neutral-100 hover:bg-neutral-700/60"
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+            <rect x="1" y="1.5" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M2.5 9.5L5 6.5L6.8 8.3L11.5 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="amRowLabel hidden flex-1">Overlay info</span>
+        <span id="overlayPill" class="hidden shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400">Off</span>
+    </button>
+    <div id="zoomGroup"
+         data-compact-class="flex items-center gap-1 shrink-0"
+         data-row-class="w-full flex items-center gap-3 px-3 py-3 text-neutral-100"
+         class="flex items-center gap-1 shrink-0" title="Page zoom (standard CEF zoom, works in any view mode)">
+        <span class="amRowLabel hidden shrink-0">Zoom</span>
+        <input id="zoomSlider" type="range" min="-5" max="5" step="0.1" value="0"
+               class="w-20 accent-neutral-500" />
+        <span id="zoomValueText" class="text-xs text-neutral-400 w-10 text-right tabular-nums">100%</span>
+        <button id="zoomResetBtn" type="button" title="Reset zoom to 100%"
+                class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 7A5 5 0 1 1 10.5 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                <path d="M12 2.5V6H8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </button>
+    </div>
+    <div id="viewModeGroup"
+         data-compact-class="flex items-center gap-1 shrink-0"
+         data-row-class="w-full flex items-center gap-3 px-3 py-3 text-neutral-100"
+         class="flex items-center gap-1 shrink-0">
+        <span class="amRowLabel hidden flex-1 text-left">View mode</span>
+        <select id="viewMode"
+                class="bg-neutral-800 text-neutral-100 text-xs rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-neutral-500">
+            <option value="clip">Clip (stretch)</option>
+            <option value="responsive" selected>Responsive</option>
+            <option value="mobile">Mobile</option>
+        </select>
+    </div>
+    <select id="deviceSelect"
+            class="hidden bg-neutral-800 text-neutral-100 text-xs rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-neutral-500">
+        <option value="iphone-se" data-width="375" data-height="667" data-platform="iPhone" data-dpr="2"
+                data-useragent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1">iPhone SE</option>
+        <option value="iphone-12" data-width="390" data-height="844" data-platform="iPhone" data-dpr="3" selected
+                data-useragent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1">iPhone 12/13 Pro</option>
+        <option value="iphone-14-max" data-width="430" data-height="932" data-platform="iPhone" data-dpr="3"
+                data-useragent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1">iPhone 14 Pro Max</option>
+        <option value="pixel-7" data-width="412" data-height="915" data-platform="Linux armv8l" data-dpr="2.625"
+                data-useragent="Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36">Pixel 7</option>
+        <option value="galaxy-s8" data-width="360" data-height="740" data-platform="Linux armv8l" data-dpr="4"
+                data-useragent="Mozilla/5.0 (Linux; Android 9; SM-G965F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36">Galaxy S8+</option>
+        <option value="ipad-mini" data-width="768" data-height="1024" data-platform="iPad" data-dpr="2"
+                data-useragent="Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1">iPad Mini</option>
+    </select>
+    <button id="rotateBtn" type="button" title="Rotate device"
+            class="hidden w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 items-center justify-center">
+        <svg id="rotateIcon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="transition: transform 0.15s ease;">
+            <rect x="4" y="1.5" width="6" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="6" y1="10.3" x2="8" y2="10.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+    </button>
+    <button id="backBtn" type="button" title="Back" disabled
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-neutral-800">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8.5 2.5L3.5 7L8.5 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </button>
+    <button id="forwardBtn" type="button" title="Forward" disabled
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-neutral-800">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5.5 2.5L10.5 7L5.5 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </button>
+    <button id="reloadBtn" type="button" title="Reload"
+            class="w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg id="reloadIcon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 7A5 5 0 1 1 10.5 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            <path d="M12 2.5V6H8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </button>
+    <input id="addressInput" type="text" autocomplete="off"
+           class="flex-1 min-w-0 bg-neutral-800 text-neutral-100 rounded px-3 py-1.5 outline-none focus:ring-1 focus:ring-neutral-500 placeholder-neutral-500"
+           placeholder="Enter a URL and press Enter" />
+    <button type="submit" class="text-xs px-3 py-1.5 rounded bg-neutral-700 hover:bg-neutral-600 text-neutral-200">Go</button>
+
+    <button id="appMenuBtn" type="button" title="Menu" aria-haspopup="menu" aria-expanded="false"
+            class="hidden w-7 h-7 shrink-0 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="7" cy="2.4" r="1.15" fill="currentColor"/>
+            <circle cx="7" cy="7" r="1.15" fill="currentColor"/>
+            <circle cx="7" cy="11.6" r="1.15" fill="currentColor"/>
+        </svg>
+    </button>
+</form>
+
+<div id="appMenu" class="hidden absolute right-2 top-full z-50 mt-1 min-w-[240px] max-w-[calc(100vw-16px)] py-1.5 rounded-lg bg-neutral-800 border border-neutral-700 shadow-[0_10px_38px_rgba(0,0,0,0.85)] text-sm select-none"></div>
+</div>

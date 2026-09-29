@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DotnetVersion)</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Xilium.CefGlue.Headless</RootNamespace>
+    <AssemblyName>Xilium.CefGlue.Common.Encoder</AssemblyName>
+    <Nullable>disable</Nullable>
+    <PackageId>CefGlue.Common.Encoder$(PackageSuffix)</PackageId>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+    <Authors>Marman-HP</Authors>
+    <Copyright>Copyright © 2026 Marman-HP.</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" />
+
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+
+</Project>

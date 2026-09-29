@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DotnetVersion)</TargetFramework>
+    <AssemblyName>Xilium.CefGlue.Broker.Admin</AssemblyName>
+    <RootNamespace>Xilium.CefGlue.Broker.Admin</RootNamespace>
+    <Nullable>disable</Nullable>
+    <Product>Xilium.CefGlue.Broker.Admin</Product>
+    <AssemblyTitle>Xilium.CefGlue.Broker.Admin</AssemblyTitle>
+    <Authors>Marman-HP</Authors>
+    <Copyright>Copyright © 2026 Marman-HP. Portions Copyright © XiliumHQ 2021, OutSystems 2021.</Copyright>
+  </PropertyGroup>
+
+  <Target Name="BuildSiblingProcesses" AfterTargets="Build" Condition="'$(BuildingSolutionFile)' != 'true'">
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\CefGlue.Broker\CefGlue.Broker.csproj&quot; -c $(Configuration)" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\CefGlue.Headless.Service\CefGlue.Headless.Service.csproj&quot; -c $(Configuration)" />
+  </Target>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)\microsoft.aspnetcore.app.internal.assets\**\_framework\blazor.web.js">
+      <Link>wwwroot\_framework\blazor.web.js</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="$(IntermediateOutputPath)scopedcss\bundle\$(AssemblyName).styles.css">
+      <Link>wwwroot\$(AssemblyName).styles.css</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

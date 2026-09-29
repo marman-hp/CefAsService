@@ -1,0 +1,52 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "Xilium.CefGlue.OpenH264.Encoder/147.7680.179": {
+        "dependencies": {
+          "Xilium.CefGlue.VideoEncoder.Shared": "147.7680.179",
+          "Xilium.CefGlue.VideoEncoder.Shared.Reference": "147.7680.179.0"
+        },
+        "runtime": {
+          "Xilium.CefGlue.OpenH264.Encoder.dll": {}
+        }
+      },
+      "Xilium.CefGlue.VideoEncoder.Shared/147.7680.179": {
+        "runtime": {
+          "Xilium.CefGlue.VideoEncoder.Shared.dll": {
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "Xilium.CefGlue.VideoEncoder.Shared.Reference/147.7680.179.0": {
+        "runtime": {
+          "Xilium.CefGlue.VideoEncoder.Shared.dll": {
+            "assemblyVersion": "147.7680.179.0",
+            "fileVersion": "147.7680.179.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Xilium.CefGlue.OpenH264.Encoder/147.7680.179": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Xilium.CefGlue.VideoEncoder.Shared/147.7680.179": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Xilium.CefGlue.VideoEncoder.Shared.Reference/147.7680.179.0": {
+      "type": "reference",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

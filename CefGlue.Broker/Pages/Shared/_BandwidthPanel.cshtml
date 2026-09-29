@@ -1,0 +1,17 @@
+<div id="bandwidthPanel" class="shrink-0 border-t border-neutral-800 px-3 py-2">
+    <div class="flex items-center justify-between text-[10px] uppercase tracking-wide text-neutral-500 font-semibold mb-1">
+        <span>Network</span>
+        <span id="bandwidthPeak" class="tabular-nums normal-case font-normal text-emerald-500">peak 0 bps</span>
+    </div>
+    <canvas id="bandwidthCanvas" class="w-full h-14 block rounded bg-black/30"></canvas>
+    <div class="flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] tabular-nums text-neutral-400">
+        <span class="flex items-center gap-1.5">
+            <span class="w-2 h-0.5 rounded-full bg-sky-400 inline-block"></span>Recv
+            <b id="bandwidthRecvValue" class="text-neutral-200 font-medium">0 bps</b>
+        </span>
+        <span class="flex items-center gap-1.5">
+            <span class="w-2 inline-block" style="border-top:1.5px dashed rgb(251 191 36);"></span>Send
+            <b id="bandwidthSendValue" class="text-neutral-200 font-medium">0 bps</b>
+        </span>
+    </div>
+</div>
