@@ -11,6 +11,17 @@
 <PageTitle>CefGlue Broker - Admin</PageTitle>
 
 <div class="admin-page">
+    @if (_reloadPhase != null)
+    {
+        <div class="reload-guard" role="alertdialog" aria-modal="true" aria-busy="true" aria-labelledby="reload-title">
+            <div class="reload-card">
+                <div class="reload-spinner" aria-hidden="true"></div>
+                <div class="reload-title" id="reload-title">Reloading…</div>
+                <div class="reload-step" aria-live="polite">@_reloadPhase</div>
+                <div class="reload-note">Settings are locked until the broker is back with them applied.</div>
+            </div>
+        </div>
+    }
     <div class="page-header">
         <h1>CefGlue Broker Admin</h1>
         <form method="post" action="/logout">
@@ -289,7 +300,7 @@
                 <label for="audio-bitrate-input">Audio Bitrate (Opus)</label>
                 <input id="audio-bitrate-input" type="number" min="6" max="510" step="1"
                        value="@_selectedAudioBitrateKbps"
-                       @onchange="@(e => _selectedAudioBitrateKbps = (string)e.Value)" />
+                       @oninput="@(e => _selectedAudioBitrateKbps = (string)e.Value)" />
                 <span>kbps</span>
             </div>
         </div>
@@ -310,7 +321,7 @@
                     <div>
                         <div class="encoder-title">Transport</div>
                         <div class="encoder-subtitle">
-                            <span>@(_activeUseWebRtc ? "WebRTC" : "WebSocket")</span>
+                            <span>@(TransportIsWebRtc ? "WebRTC" : "WebSocket")@(Supervisor.IsRunning ? "" : " - on next Start")</span>
                         </div>
                     </div>
                 </div>
@@ -336,13 +347,13 @@
                     </div>
                 </div>
 
-                @if (_activeUseWebRtc)
+                @if (TransportIsWebRtc)
                 {
                     <div class="encoder-audio-row">
                         <label for="webrtc-pacing-input">WebRTC Video Pacing</label>
                         <input id="webrtc-pacing-input" type="number" min="1000000" step="1000000"
                                value="@_selectedWebRtcPacingBps"
-                               @onchange="@(e => _selectedWebRtcPacingBps = (string)e.Value)" />
+                               @oninput="@(e => _selectedWebRtcPacingBps = (string)e.Value)" />
                         <span>bps</span>
                         <button type="button" class="btn" @onclick="@(() => _selectedWebRtcPacingBps = "500000000")">Use 500M</button>
                     </div>
@@ -411,7 +422,7 @@
                     <input id="session-timeout-input" type="number" min="1" step="1"
                            aria-invalid="@(SessionTimingError != null ? "true" : "false")"
                            value="@_selectedSessionTimeoutSeconds"
-                           @onchange="@(e => _selectedSessionTimeoutSeconds = (string)e.Value)" />
+                           @oninput="@(e => _selectedSessionTimeoutSeconds = (string)e.Value)" />
                     <span>sec (how long a worker runs with no viewer before it stops - tabs and logins are kept, see Manifest TTL)</span>
                 </div>
 
@@ -421,7 +432,7 @@
                            aria-invalid="@(SessionTimingError != null ? "true" : "false")"
                            aria-describedby="session-timing-error"
                            value="@_selectedManifestTtlSeconds"
-                           @onchange="@(e => _selectedManifestTtlSeconds = (string)e.Value)" />
+                           @oninput="@(e => _selectedManifestTtlSeconds = (string)e.Value)" />
                     <span>sec (how long a timed-out tenant's tabs and logins are kept before being deleted)</span>
                 </div>
                 @if (SessionTimingError is { } timingError)
@@ -464,12 +475,12 @@
                     <label>Broker exe (@ExePaths.BrokerExeName)
                         <input type="text" spellcheck="false" @bind="_brokerPathInput"
                                placeholder="@PathPlaceholder("CEFGLUE_BROKER_EXE_PATH")" />
-                        <span class="path-status">Running: @(Supervisor.IsRunning ? Supervisor.RunningExePath ?? "unknown (attached)" : "-")</span>
+                        <span class="path-status">@(Supervisor.IsRunning ? $"Running: {Supervisor.RunningExePath ?? "unknown (attached)"}" : $"Next Start uses: {PathSourceText(Paths.BrokerExePath, "CEFGLUE_BROKER_EXE_PATH")}")</span>
                     </label>
                     <label>Worker exe (@ExePaths.WorkerExeName)
                         <input type="text" spellcheck="false" @bind="_workerPathInput"
                                placeholder="@PathPlaceholder("CEFGLUE_WORKER_EXE_PATH")" />
-                        <span class="path-status">In use by Broker: @(Supervisor.IsRunning ? _activeWorkerExePath ?? "unknown" : "-")</span>
+                        <span class="path-status">@(Supervisor.IsRunning ? $"In use by Broker: {_activeWorkerExePath ?? "unknown"}" : $"Next Start uses: {PathSourceText(Paths.WorkerExePath, "CEFGLUE_WORKER_EXE_PATH")}")</span>
                     </label>
                 </div>
                 <div class="control-row">
@@ -540,7 +551,20 @@
         @if (HasUnappliedSettings)
         {
             <div class="control-row">
-                <span class="pending-note">One or more fields have changed - restart the broker to apply them.</span>
+                <span class="pending-note">One or more fields have changed - @(Supervisor.IsRunning ? "restart" : "start") the broker to apply them.</span>
+            </div>
+        }
+
+        @if (AdminDb.Error is { } dbError)
+        {
+            <div class="control-row">
+                <span class="error">Settings database unavailable: @dbError - fix it and restart Admin. Start/Restart are disabled.</span>
+            </div>
+        }
+        else if (_saveError != null)
+        {
+            <div class="control-row">
+                <span class="error">@_saveError</span>
             </div>
         }
 
@@ -551,7 +575,7 @@
             }
             else if (!Supervisor.IsRunning)
             {
-                <button class="btn" @onclick="StartWithCurrentSettings" disabled="@(Paths.BrokerStartBlocker != null || SessionTimingError != null)">Start</button>
+                <button class="btn" @onclick="StartWithCurrentSettings" disabled="@(Paths.BrokerStartBlocker != null || SessionTimingError != null || AdminDb.Error != null)">Start</button>
                 @if (Paths.BrokerStartBlocker is { } startBlocker)
                 {
                     <span class="error">@startBlocker Set it in the Executables tab.</span>
@@ -576,7 +600,7 @@
                         <text> Also applies the CEF Settings/Default Encoder/Connection Mode/Audio Bitrate selections above.</text>
                     }
                 </span>
-                <button class="btn btn-danger" @onclick="ConfirmRestart" disabled="@(SessionTimingError != null)">Yes, restart</button>
+                <button class="btn btn-danger" @onclick="ConfirmRestart" disabled="@(SessionTimingError != null || AdminDb.Error != null)">Yes, restart</button>
                 @if (SessionTimingError != null)
                 {
                     <span class="error">Fix Session Timeout / Manifest TTL in the Session &amp; Cleanup tab first.</span>
@@ -689,6 +713,20 @@
         Environment.GetEnvironmentVariable(envVar) is { Length: > 0 } fallback
             ? $"empty = {envVar}: {fallback}"
             : "full path, e.g. D:\\...\\bin\\x64\\Release\\net10.0\\...exe";
+
+    private static string PathSourceText(string effectivePath, string envVar)
+    {
+        if (string.IsNullOrEmpty(effectivePath))
+        {
+            return "not set";
+        }
+
+        return string.Equals(Environment.GetEnvironmentVariable(envVar), effectivePath, StringComparison.OrdinalIgnoreCase)
+            ? $"{effectivePath} (from {envVar})"
+            : effectivePath;
+    }
+
+    private bool TransportIsWebRtc => Supervisor.IsRunning ? _activeUseWebRtc : Supervisor.LaunchesWithWebRtc;
 
     private bool PathsNeedRestart =>
         Supervisor.IsRunning
@@ -833,6 +871,34 @@
     private bool _confirmingRestart;
     private bool _starting;
     private bool _restarting;
+
+    private const string LoadingCurrentSettingsStep = "Loading current settings…";
+    private static readonly TimeSpan ReloadGuardTimeout = TimeSpan.FromSeconds(60);
+    private string _reloadPhase = LoadingCurrentSettingsStep;
+    private bool _initialLoadPending = true;
+
+    private string _savedSnapshot;
+
+    private string SaveSnapshot() => System.Text.Json.JsonSerializer.Serialize(new object[]
+    {
+        _selectedEncoder, _selectedMode, SelectedEncoderSettingsForSave(), _selectedAudioBitrateKbps, _selectedWebRtcPacingBps, _selectedWebRtcIceServers,
+        !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0", _selectedTextureEnable ? "1" : "", _selectedDiskCacheSizeBytes, _selectedMediaCacheSizeBytes,
+        _selectedSessionTimeoutSeconds, _selectedManifestTtlSeconds,
+        string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl, _selectedNewPageUseLastUrl ? "1" : "0",
+    });
+
+    private bool HasChangesToSave => _savedSnapshot == null || SaveSnapshot() != _savedSnapshot;
+    private DateTime _reloadLoadingSinceUtc;
+
+    private void SetReloadPhase(string phase)
+    {
+        _reloadPhase = phase;
+        if (phase == LoadingCurrentSettingsStep)
+        {
+            _reloadLoadingSinceUtc = DateTime.UtcNow;
+        }
+        StateHasChanged();
+    }
     private string _confirmingKillTenantId;
     private string _lastKillError;
 
@@ -853,6 +919,32 @@
     private static string Norm(string s) => string.IsNullOrEmpty(s) ? null : s;
 
     private bool ShowPendingEncoderNote => Norm(_selectedEncoder) != Norm(_activeEncoder);
+
+    private Dictionary<string, string> _activeEncoderSettings;
+
+    private bool ShowPendingEncoderTuningNote
+    {
+        get
+        {
+            if (_activeEncoderSettings == null || SelectedEncoderManifest is not { HasTunableSettings: true } manifest)
+            {
+                return false;
+            }
+
+            foreach (var setting in manifest.Settings)
+            {
+                var envVar = manifest.EnvVarName(setting);
+                var current = (_encoderValues.TryGetValue(envVar, out var value) ? value : "")?.Trim() ?? "";
+                var active = _activeEncoderSettings.TryGetValue(envVar, out var a) && !string.IsNullOrWhiteSpace(a) ? a.Trim() : (setting.Default ?? "").Trim();
+                if (!string.Equals(current, active, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
 
     private IEnumerable<(string Value, string Label)> VisibleEncoderOptions
     {
@@ -947,9 +1039,9 @@
 
     private bool ShowPendingAudioBitrateNote => _selectedAudioBitrateKbps != _activeAudioBitrateKbps;
 
-    private bool ShowPendingWebRtcPacingBpsNote => _activeUseWebRtc && Norm(_selectedWebRtcPacingBps) != Norm(_activeWebRtcPacingBps);
+    private bool ShowPendingWebRtcPacingBpsNote => TransportIsWebRtc && Norm(_selectedWebRtcPacingBps) != Norm(_activeWebRtcPacingBps);
 
-    private bool ShowPendingWebRtcIceServersNote => _activeUseWebRtc && Norm(_selectedWebRtcIceServers) != Norm(_activeWebRtcIceServers);
+    private bool ShowPendingWebRtcIceServersNote => TransportIsWebRtc && Norm(_selectedWebRtcIceServers) != Norm(_activeWebRtcIceServers);
 
     private bool ShowPendingSessionTimeoutNote => Norm(_selectedSessionTimeoutSeconds) != (Norm(_activeSessionTimeoutSeconds) ?? "300");
 
@@ -994,14 +1086,14 @@
     {
         0 => ShowPendingDisableGpuNote || ShowPendingTextureEnableNote || ShowPendingDiskCacheSizeBytesNote || ShowPendingMediaCacheSizeBytesNote
              || ShowPendingDefaultUrlNote || ShowPendingNewPageUseLastUrlNote,
-        1 => ShowPendingEncoderNote || ShowPendingAudioBitrateNote,
+        1 => ShowPendingEncoderNote || ShowPendingEncoderTuningNote || ShowPendingAudioBitrateNote,
         2 => ShowPendingModeNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote,
         3 => ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote || SessionTimingError != null,
         4 => PathsNeedRestart || Paths.BrokerStartBlocker != null,
         _ => false,
     };
 
-    private bool HasUnappliedSettings => ShowPendingEncoderNote || ShowPendingModeNote || ShowPendingAudioBitrateNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote
+    private bool HasUnappliedSettings => ShowPendingEncoderNote || ShowPendingEncoderTuningNote || ShowPendingModeNote || ShowPendingAudioBitrateNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote
         || ShowPendingDisableGpuNote || ShowPendingTextureEnableNote || ShowPendingDiskCacheSizeBytesNote || ShowPendingMediaCacheSizeBytesNote
         || ShowPendingDefaultUrlNote || ShowPendingNewPageUseLastUrlNote
         || ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote;
@@ -1041,30 +1133,82 @@
         }
     }
 
+    private bool _seededFromBroker;
+
+    private void ClearSeededSelections()
+    {
+        _savedSnapshot = null;
+        _selectedEncoder = null;
+        _selectedMode = null;
+        _selectedAudioBitrateKbps = null;
+        _selectedDiskCacheSizeBytes = null;
+        _selectedMediaCacheSizeBytes = null;
+        _selectedDefaultUrl = null;
+        _selectedWebRtcPacingBps = null;
+        _selectedWebRtcIceServers = null;
+        _selectedSessionTimeoutSeconds = null;
+        _selectedManifestTtlSeconds = null;
+        _newPageUseLastUrlSeeded = false;
+        _disableGpuSeeded = false;
+        _textureEnableSeeded = false;
+        _iceServerEntriesSeeded = false;
+        _encoderValues.Clear();
+    }
+
     private async Task RefreshOnceAsync()
     {
         var workers = await WorkerSource.GetWorkersAsync();
-        var (active, pending) = await WorkerSource.GetSettingsAsync();
-        var (activeMode, pendingMode) = await WorkerSource.GetConnectionModeAsync();
-        var (activeAudioBitrateKbps, pendingAudioBitrateKbps) = await WorkerSource.GetAudioBitrateKbpsAsync();
-        var (activeDisableGpu, pendingDisableGpu) = await WorkerSource.GetDisableGpuAsync();
-        var (activeTextureEnable, pendingTextureEnable) = await WorkerSource.GetTextureEnableAsync();
-        var (activeDiskCacheSizeBytes, pendingDiskCacheSizeBytes) = await WorkerSource.GetDiskCacheSizeBytesAsync();
-        var (activeMediaCacheSizeBytes, pendingMediaCacheSizeBytes) = await WorkerSource.GetMediaCacheSizeBytesAsync();
-        var (activeDefaultUrl, pendingDefaultUrl, activeNewPageUseLastUrl, pendingNewPageUseLastUrl) = await WorkerSource.GetNewPageUrlSettingsAsync();
-        var activeUseWebRtc = await WorkerSource.GetUseWebRtcAsync();
-        var (activeWebRtcPacingBps, pendingWebRtcPacingBps) = await WorkerSource.GetWebRtcPacingBpsAsync();
-        var (activeWebRtcIceServers, pendingWebRtcIceServers) = await WorkerSource.GetWebRtcIceServersAsync();
-        var (activeSessionTimeoutSeconds, pendingSessionTimeoutSeconds) = await WorkerSource.GetSessionTimeoutSecondsAsync();
-        var (activeManifestTtlSeconds, pendingManifestTtlSeconds) = await WorkerSource.GetManifestTtlSecondsAsync();
-        var (activeEncoderSettings, pendingEncoderSettings) = await WorkerSource.GetEncoderSettingsAsync();
-        var availableEncoders = await WorkerSource.GetAvailableEncodersAsync();
         var (cacheSizeBytes, cacheTenantCount, standaloneCacheSizeBytes) = await WorkerSource.GetCacheInfoAsync();
-        var activeWorkerExePath = await WorkerSource.GetActiveWorkerExePathAsync();
-        var (activeIsolationMode, isolationSwitch) = await WorkerSource.GetIsolationModeAsync();
+
+        BrokerDbView view = null;
+        try
+        {
+            view = BrokerDbView.Read();
+        }
+        catch (Exception ex)
+        {
+            AdminDb.Fail(AdminDb.Error ?? $"Cannot read {AdminDb.Path}: {ex.Message}");
+        }
+
+        string Saved(string key) => view?.Saved.GetValueOrDefault(key);
+        string Active(string key) => view == null ? null : view.BrokerRunning ? view.Active.GetValueOrDefault(key) : Saved(key);
+
+        var (active, pending) = (Active("VideoEncoder"), Saved("VideoEncoder"));
+        var (activeMode, pendingMode) = (Active("ConnectionMode"), Saved("ConnectionMode"));
+        var (activeAudioBitrateKbps, pendingAudioBitrateKbps) = (Active("AudioBitrateKbps"), Saved("AudioBitrateKbps"));
+        var (activeDisableGpu, pendingDisableGpu) = (Active("DisableGpu"), Saved("DisableGpu"));
+        var (activeTextureEnable, pendingTextureEnable) = (Active("TextureEnable"), Saved("TextureEnable"));
+        var (activeDiskCacheSizeBytes, pendingDiskCacheSizeBytes) = (Active("DiskCacheSizeBytes"), Saved("DiskCacheSizeBytes"));
+        var (activeMediaCacheSizeBytes, pendingMediaCacheSizeBytes) = (Active("MediaCacheSizeBytes"), Saved("MediaCacheSizeBytes"));
+        var (activeDefaultUrl, pendingDefaultUrl) = (Active("DefaultUrl"), Saved("DefaultUrl"));
+        var (activeNewPageUseLastUrl, pendingNewPageUseLastUrl) = (Active("NewPageUseLastUrl"), Saved("NewPageUseLastUrl"));
+        var activeUseWebRtc = view?.UseWebRtc;
+        var (activeWebRtcPacingBps, pendingWebRtcPacingBps) = (Active("WebRtcPacingBps"), Saved("WebRtcPacingBps"));
+        var (activeWebRtcIceServers, pendingWebRtcIceServers) = (Active("WebRtcIceServers"), Saved("WebRtcIceServers"));
+        var (activeSessionTimeoutSeconds, pendingSessionTimeoutSeconds) = (Active("SessionTimeoutSeconds"), Saved("SessionTimeoutSeconds"));
+        var (activeManifestTtlSeconds, pendingManifestTtlSeconds) = (Active("ManifestTtlSeconds"), Saved("ManifestTtlSeconds"));
+        var pendingEncoderSettings = view?.SavedEncoderSettings;
+        var activeEncoderSettings = view == null ? null : view.BrokerRunning ? view.ActiveEncoderSettings : view.SavedEncoderSettings;
+        var availableEncoders = view?.AvailableEncoders ?? Array.Empty<string>();
+        var activeWorkerExePath = view?.WorkerExePath;
+        var (activeIsolationMode, isolationSwitch) = (view?.IsolationMode, view?.IsolationSwitch);
 
         await InvokeAsync(() =>
         {
+            var hasRealData = view != null;
+            if (hasRealData && !_seededFromBroker)
+            {
+                ClearSeededSelections();
+                _seededFromBroker = true;
+            }
+
+            if (_reloadPhase == LoadingCurrentSettingsStep
+                && ((view?.RuntimeUpdatedUtc is { } brokerReadyUtc && brokerReadyUtc >= _reloadLoadingSinceUtc)
+                    || DateTime.UtcNow - _reloadLoadingSinceUtc > ReloadGuardTimeout))
+            {
+                _reloadPhase = null;
+            }
+
             _workers = workers.OrderBy(w => w.TenantId).ToList();
             _activeEncoder = active;
             _pendingEncoder = pending;
@@ -1135,7 +1279,22 @@
                 _iceServerEntriesSeeded = true;
             }
 
+            _activeEncoderSettings = activeEncoderSettings;
             RefreshEncoderManifests(activeEncoderSettings, pendingEncoderSettings);
+
+            if (_seededFromBroker && _savedSnapshot == null)
+            {
+                _savedSnapshot = SaveSnapshot();
+            }
+
+            if (_initialLoadPending)
+            {
+                _initialLoadPending = false;
+                if (_reloadPhase == LoadingCurrentSettingsStep && !_starting && !_restarting)
+                {
+                    _reloadPhase = null;
+                }
+            }
 
             StateHasChanged();
         });
@@ -1178,14 +1337,48 @@
         await RefreshOnceAsync();
     }
 
-    private async Task<bool> PersistCurrentSettingsAsync()
+    private Task<bool> PersistCurrentSettingsAsync()
     {
-        var encoderSettings = SelectedEncoderSettingsForSave();
-        return await WorkerSource.SaveSettingsAsync(_selectedEncoder, _selectedMode, encoderSettings, _selectedAudioBitrateKbps, _selectedWebRtcPacingBps, _selectedWebRtcIceServers,
-            !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0", _selectedTextureEnable ? "1" : "", _selectedDiskCacheSizeBytes, _selectedMediaCacheSizeBytes,
-            _selectedSessionTimeoutSeconds, _selectedManifestTtlSeconds,
-            string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl, _selectedNewPageUseLastUrl ? "1" : "0");
+        var snapshot = SaveSnapshot();
+        var fields = new Dictionary<string, string>();
+        void Field(string key, string value)
+        {
+            if (value != null)
+            {
+                fields[key] = value;
+            }
+        }
+
+        Field("VideoEncoder", _selectedEncoder);
+        Field("ConnectionMode", _selectedMode);
+        Field("AudioBitrateKbps", _selectedAudioBitrateKbps);
+        Field("WebRtcPacingBps", _selectedWebRtcPacingBps);
+        Field("WebRtcIceServers", _selectedWebRtcIceServers);
+        Field("DisableGpu", !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0");
+        Field("TextureEnable", _selectedTextureEnable ? "1" : "");
+        Field("DiskCacheSizeBytes", _selectedDiskCacheSizeBytes);
+        Field("MediaCacheSizeBytes", _selectedMediaCacheSizeBytes);
+        Field("SessionTimeoutSeconds", _selectedSessionTimeoutSeconds);
+        Field("ManifestTtlSeconds", _selectedManifestTtlSeconds);
+        Field("DefaultUrl", string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl);
+        Field("NewPageUseLastUrl", _selectedNewPageUseLastUrl ? "1" : "0");
+
+        try
+        {
+            BrokerSettingsWriter.Save(AdminDb.Db, fields, SelectedEncoderSettingsForSave());
+            _savedSnapshot = snapshot;
+            _saveError = null;
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _saveError = $"Settings not saved: {ex.Message}";
+            Console.WriteLine($"[Admin] {_saveError}");
+            return Task.FromResult(false);
+        }
     }
+
+    private string _saveError;
 
     private void AddIceServer()
     {
@@ -1238,31 +1431,27 @@
         }
 
         _starting = true;
-        StateHasChanged();
+        var started = false;
         try
         {
-            var persisted = await PersistCurrentSettingsAsync();
-            await Supervisor.StopAsync();
-            await Supervisor.StartAsync();
-
-            if (!persisted)
+            if (HasChangesToSave)
             {
-                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-                while (DateTime.UtcNow < deadline && Supervisor.IsRunning)
+                SetReloadPhase("Saving settings…");
+                if (!await PersistCurrentSettingsAsync())
                 {
-                    if (await PersistCurrentSettingsAsync())
-                    {
-                        await Supervisor.RestartAsync();
-                        break;
-                    }
-
-                    await Task.Delay(TimeSpan.FromMilliseconds(500));
+                    return;
                 }
             }
+
+            SetReloadPhase("Starting the broker…");
+            await Supervisor.StopAsync();
+            await Supervisor.StartAsync();
+            started = true;
         }
         finally
         {
             _starting = false;
+            SetReloadPhase(started ? LoadingCurrentSettingsStep : null);
         }
     }
 
@@ -1330,15 +1519,26 @@
 
         _confirmingRestart = false;
         _restarting = true;
-        StateHasChanged();
+        var restarted = false;
         try
         {
-            await PersistCurrentSettingsAsync();
+            if (HasChangesToSave)
+            {
+                SetReloadPhase("Saving settings…");
+                if (!await PersistCurrentSettingsAsync())
+                {
+                    return;
+                }
+            }
+
+            SetReloadPhase("Restarting the broker…");
             await Supervisor.RestartAsync();
+            restarted = true;
         }
         finally
         {
             _restarting = false;
+            SetReloadPhase(restarted ? LoadingCurrentSettingsStep : null);
         }
     }
 

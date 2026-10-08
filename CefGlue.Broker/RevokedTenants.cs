@@ -10,9 +10,6 @@ namespace Xilium.CefGlue.Broker
     {
         private static readonly TimeSpan Lifetime = TimeSpan.FromDays(1);
 
-        private static readonly string FilePath =
-            Path.Combine(AppContext.BaseDirectory, "broker-revoked-tenants.json");
-
         private static readonly object Gate = new();
 
         private static Dictionary<string, DateTime> _revokedUtc;
@@ -23,7 +20,7 @@ namespace Xilium.CefGlue.Broker
             {
                 var revoked = LoadPruned();
                 revoked[tenantId] = DateTime.UtcNow;
-                Save(revoked);
+                Storage.BrokerStore.SaveRevoked(revoked, tenantId, Array.Empty<string>());
             }
         }
 
@@ -42,42 +39,17 @@ namespace Xilium.CefGlue.Broker
 
         private static Dictionary<string, DateTime> LoadPruned()
         {
-            if (_revokedUtc == null)
-            {
-                try
-                {
-                    _revokedUtc = File.Exists(FilePath)
-                        ? JsonSerializer.Deserialize<Dictionary<string, DateTime>>(File.ReadAllText(FilePath)) ?? new()
-                        : new();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[RevokedTenants] Could not read {FilePath} ({ex.Message}) - starting from empty.");
-                    _revokedUtc = new();
-                }
-            }
+            _revokedUtc ??= Storage.BrokerStore.LoadRevoked();
 
             var cutoff = DateTime.UtcNow - Lifetime;
             var expired = _revokedUtc.Where(kvp => kvp.Value < cutoff).Select(kvp => kvp.Key).ToList();
             if (expired.Count > 0)
             {
                 expired.ForEach(id => _revokedUtc.Remove(id));
-                Save(_revokedUtc);
+                Storage.BrokerStore.SaveRevoked(_revokedUtc, null, expired);
             }
 
             return _revokedUtc;
-        }
-
-        private static void Save(Dictionary<string, DateTime> revoked)
-        {
-            try
-            {
-                File.WriteAllText(FilePath, JsonSerializer.Serialize(revoked, new JsonSerializerOptions { WriteIndented = true }));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[RevokedTenants] Could not write {FilePath}: {ex.Message}");
-            }
         }
     }
 }

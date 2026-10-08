@@ -26,14 +26,29 @@
     <ProjectReference Include="..\CefGlue\CefGlue.csproj" />
   </ItemGroup>
 
-  <Target Name="Editbin" AfterTargets="Compile" Condition="$(IsEditbinEnabled) == True And $(VcvarsFile) != '' And $([MSBuild]::IsOSPlatform('Windows'))">
+  <Target Name="Editbin" AfterTargets="Compile" Condition="$(IsEditbinEnabled) == True And $([MSBuild]::IsOSPlatform('Windows'))">
 
     <PropertyGroup>
       <ApphostLocation>$(ProjectDir)$(BaseIntermediateOutputPath)$(Platform)\$(Configuration)\$(TargetFramework)\</ApphostLocation>
       <ApphostLocation Condition="'$(IsPublishing)' == 'True'">$(ApphostLocation)$(RuntimeIdentifier)\</ApphostLocation>
     </PropertyGroup>
 
-    <Exec Command="call &quot;$(VcvarsFile)&quot;&#xD;&#xA; editbin /STACK:0x800000 &quot;$(ApphostLocation)\apphost.exe&quot;&#xD;&#xA;" />
+    <PropertyGroup>
+      <VswherePath>$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer\vswhere.exe</VswherePath>
+    </PropertyGroup>
+    <Exec Condition="'$(VcvarsFile)' == '' And Exists('$(VswherePath)')"
+          Command="&quot;$(VswherePath)&quot; -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_VsInstallPath" />
+    </Exec>
+    <PropertyGroup Condition="'$(VcvarsFile)' == '' And '$(_VsInstallPath)' != ''">
+      <VcvarsFile>$(_VsInstallPath)\VC\Auxiliary\Build\vcvars64.bat</VcvarsFile>
+    </PropertyGroup>
+
+    <Warning Condition="'$(VcvarsFile)' == '' Or !Exists('$(VcvarsFile)')"
+             Text="Visual Studio C++ build tools (vcvars64.bat) not found - Xilium.CefGlue.BrowserProcess.exe keeps the default 1.5 MB stack instead of 8 MB. Install the 'Desktop development with C++' workload or pass VcvarsFile." />
+    <Exec Condition="'$(VcvarsFile)' != '' And Exists('$(VcvarsFile)')"
+          Command="call &quot;$(VcvarsFile)&quot; &gt;nul&#xD;&#xA; editbin /nologo /STACK:0x800000 &quot;$(ApphostLocation)\apphost.exe&quot;&#xD;&#xA;" />
   </Target>
 
   <Target Name="PublishApp" AfterTargets="AfterBuild" Condition="'$(_AssemblyTimestampBeforeCompile)' != '$(_AssemblyTimestampAfterCompile)' and '$(IsPublishing)' != 'True'">

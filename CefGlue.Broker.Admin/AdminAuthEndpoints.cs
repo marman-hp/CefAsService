@@ -49,6 +49,19 @@ namespace Xilium.CefGlue.Broker.Admin
         {
             app.Use(async (context, next) =>
             {
+                if (AdminDb.Error is { } dbError)
+                {
+                    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    await context.Response.WriteAsync(
+                        "<!doctype html><meta charset=utf-8><title>CefGlue Broker Admin - database error</title>"
+                        + "<body style=\"background:#14181f;color:#e6e9ee;font:15px system-ui,sans-serif;padding:40px\">"
+                        + "<h1 style=\"font-size:20px;color:#e0665a\">Settings database unavailable</h1>"
+                        + "<p>" + System.Net.WebUtility.HtmlEncode(dbError) + "</p>"
+                        + "<p style=\"color:#8b96a3\">Nothing has been started. Fix the problem (missing sqlite3.dll next to the exe, folder permissions, a damaged file), then restart Admin.</p></body>");
+                    return;
+                }
+
                 var path = context.Request.Path;
                 if (path.StartsWithSegments("/login") || path.StartsWithSegments("/setup") || path.StartsWithSegments("/logout")
                     || context.User.Identity?.IsAuthenticated == true)

@@ -12,6 +12,14 @@
             <span class="w-2 h-0.5 rounded-full bg-fuchsia-400 inline-block"></span>Latency
             <b id="latencyValue" class="text-neutral-200 font-medium">-</b>
         </span>
+        @if (useWebRtcForTransportLabel)
+        {
+            <span class="flex items-center gap-1.5 normal-case">
+                Route
+                <span id="iceRouteDot" class="w-2 h-2 rounded-full inline-block" style="background:#525252"></span>
+                <b id="iceRouteValue" class="text-neutral-200 font-medium">-</b>
+            </span>
+        }
         <span class="flex items-center gap-1.5 normal-case">
             Via
             <b id="remoteIpValue" class="text-neutral-200 font-medium">-</b>

@@ -21,6 +21,7 @@ namespace Xilium.CefGlue.Broker
             "CEFGLUE_OPENH264_COMPLEXITY", "CEFGLUE_OPENH264_PROFILE",
             "CEFGLUE_OPENH264_TARGET_BITRATE_MBPS", "CEFGLUE_OPENH264_MAX_BITRATE_MBPS",
             "CEFGLUE_OPENH264_KEYINT_SECONDS", "CEFGLUE_OPENH264_THREADS",
+            "CEFGLUE_OPENH264_SLICE_KB", "CEFGLUE_OPENH264_SLICES",
             "CEFGLUE_VP9_CPU_USED", "CEFGLUE_VP9_CQ_LEVEL", "CEFGLUE_VP9_BITRATE_MBPS",
             "CEFGLUE_VP9_KEYINT_SECONDS", "CEFGLUE_VP9_THREADS",
             "CEFGLUE_QSV_TARGET_USAGE", "CEFGLUE_QSV_PROFILE", "CEFGLUE_QSV_QVBR_QUALITY",
@@ -185,167 +186,6 @@ namespace Xilium.CefGlue.Broker
                     return JsonSerializer.Serialize(new { ok = true });
                 }
 
-                case "getSettings":
-                {
-                    var settings = BrokerSettings.Load();
-
-                    return JsonSerializer.Serialize(new
-                    {
-                        ok = true,
-                        activeWorkerExePath = ProcessSpawner.WorkerExePath,
-                        activeIsolationMode = Program.IsolationMode,
-                        isolationModeSwitch = IsolationModeGuard.LastSwitch is { } sw
-                            ? new { from = sw.From, to = sw.To, atUtc = sw.AtUtc, wipeOk = sw.WipeOk }
-                            : null,
-                        activeVideoEncoder = Environment.GetEnvironmentVariable("CEFGLUE_VIDEO_ENCODER"),
-                        pendingVideoEncoder = settings.VideoEncoder,
-                        activeConnectionMode = Program.ActiveConnectionMode,
-                        pendingConnectionMode = settings.ConnectionMode,
-                        activeAudioBitrateKbps = Environment.GetEnvironmentVariable("CEFGLUE_OPUS_BITRATE_KBPS"),
-                        pendingAudioBitrateKbps = settings.AudioBitrateKbps,
-                        activeDisableGpu = Environment.GetEnvironmentVariable("CEFGLUE_DISABLE_GPU"),
-                        pendingDisableGpu = settings.DisableGpu,
-                        activeTextureEnable = Environment.GetEnvironmentVariable("CEFGLUE_TEXTURE_ENABLE"),
-                        pendingTextureEnable = settings.TextureEnable,
-                        activeDiskCacheSizeBytes = Environment.GetEnvironmentVariable("CEFGLUE_DISK_CACHE_SIZE_BYTES"),
-                        pendingDiskCacheSizeBytes = settings.DiskCacheSizeBytes,
-                        activeMediaCacheSizeBytes = Environment.GetEnvironmentVariable("CEFGLUE_MEDIA_CACHE_SIZE_BYTES"),
-                        pendingMediaCacheSizeBytes = settings.MediaCacheSizeBytes,
-                        activeDefaultUrl = Environment.GetEnvironmentVariable("CEFGLUE_DEFAULT_URL"),
-                        pendingDefaultUrl = settings.DefaultUrl,
-                        activeNewPageUseLastUrl = Environment.GetEnvironmentVariable("CEFGLUE_NEW_PAGE_USE_LAST_URL"),
-                        pendingNewPageUseLastUrl = settings.NewPageUseLastUrl,
-                        activeUseWebRtc = Environment.GetEnvironmentVariable("CEFGLUE_USE_WEBRTC"),
-                        activeWebRtcPacingBps = Environment.GetEnvironmentVariable("CEFGLUE_WEBRTC_VIDEO_PACING_BPS"),
-                        pendingWebRtcPacingBps = settings.WebRtcPacingBps,
-                        activeWebRtcIceServers = Environment.GetEnvironmentVariable("CEFGLUE_WEBRTC_ICE_SERVERS"),
-                        pendingWebRtcIceServers = settings.WebRtcIceServers,
-                        activeSessionTimeoutSeconds = Environment.GetEnvironmentVariable("CEFGLUE_ABANDON_GRACE_SECONDS"),
-                        pendingSessionTimeoutSeconds = settings.SessionTimeoutSeconds,
-                        activeManifestTtlSeconds = Program.ActiveManifestTtlSeconds,
-                        pendingManifestTtlSeconds = settings.ManifestTtlSeconds,
-                        activeEncoderSettings = KnownEncoderSettingEnvVars.ToDictionary(
-                            name => name, Environment.GetEnvironmentVariable),
-                        pendingEncoderSettings = settings.EncoderSettings ?? new Dictionary<string, string>(),
-                        availableEncoders = Program.AvailableEncoders,
-                    });
-                }
-
-                case "saveSettings":
-                {
-                    {
-                        static int? Seconds(JsonElement root, string name, string saved) =>
-                            int.TryParse(root.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : saved, out var v) ? v : null;
-                        var saved = BrokerSettings.Load();
-                        var timeout = Seconds(root, "sessionTimeoutSeconds", saved.SessionTimeoutSeconds) ?? 300;
-                        var ttl = Seconds(root, "manifestTtlSeconds", saved.ManifestTtlSeconds) ?? 900;
-                        if (ttl < timeout)
-                        {
-                            return JsonSerializer.Serialize(new { ok = false, error = $"Manifest TTL ({ttl}s) can't be shorter than Session Timeout ({timeout}s)." });
-                        }
-                    }
-
-                    BrokerSettings.Update(settings =>
-                    {
-                    if (root.TryGetProperty("videoEncoder", out var vProp))
-                    {
-                        var videoEncoder = vProp.ValueKind == JsonValueKind.String ? vProp.GetString() : null;
-                        settings.VideoEncoder = string.IsNullOrEmpty(videoEncoder) ? null : videoEncoder;
-                    }
-
-                    if (root.TryGetProperty("connectionMode", out var cProp))
-                    {
-                        var connectionMode = cProp.ValueKind == JsonValueKind.String ? cProp.GetString() : null;
-                        settings.ConnectionMode = string.IsNullOrEmpty(connectionMode) ? null : connectionMode;
-                    }
-
-                    if (root.TryGetProperty("audioBitrateKbps", out var abProp))
-                    {
-                        var audioBitrateKbps = abProp.ValueKind == JsonValueKind.String ? abProp.GetString() : null;
-                        settings.AudioBitrateKbps = string.IsNullOrEmpty(audioBitrateKbps) ? null : audioBitrateKbps;
-                    }
-
-                    if (root.TryGetProperty("disableGpu", out var dgProp))
-                    {
-                        var disableGpu = dgProp.ValueKind == JsonValueKind.String ? dgProp.GetString() : null;
-                        settings.DisableGpu = string.IsNullOrEmpty(disableGpu) ? null : disableGpu;
-                    }
-
-                    if (root.TryGetProperty("textureEnable", out var teProp))
-                    {
-                        var textureEnable = teProp.ValueKind == JsonValueKind.String ? teProp.GetString() : null;
-                        settings.TextureEnable = string.IsNullOrEmpty(textureEnable) ? null : textureEnable;
-                    }
-
-                    if (root.TryGetProperty("diskCacheSizeBytes", out var dcProp))
-                    {
-                        var diskCacheSizeBytes = dcProp.ValueKind == JsonValueKind.String ? dcProp.GetString() : null;
-                        settings.DiskCacheSizeBytes = string.IsNullOrEmpty(diskCacheSizeBytes) ? null : diskCacheSizeBytes;
-                    }
-
-                    if (root.TryGetProperty("mediaCacheSizeBytes", out var mcProp))
-                    {
-                        var mediaCacheSizeBytes = mcProp.ValueKind == JsonValueKind.String ? mcProp.GetString() : null;
-                        settings.MediaCacheSizeBytes = string.IsNullOrEmpty(mediaCacheSizeBytes) ? null : mediaCacheSizeBytes;
-                    }
-
-                    if (root.TryGetProperty("defaultUrl", out var duProp))
-                    {
-                        var defaultUrl = duProp.ValueKind == JsonValueKind.String ? duProp.GetString()?.Trim() : null;
-                        settings.DefaultUrl = string.IsNullOrEmpty(defaultUrl) ? null : defaultUrl;
-                    }
-
-                    if (root.TryGetProperty("newPageUseLastUrl", out var nlProp))
-                    {
-                        var newPageUseLastUrl = nlProp.ValueKind == JsonValueKind.String ? nlProp.GetString() : null;
-                        settings.NewPageUseLastUrl = string.IsNullOrEmpty(newPageUseLastUrl) ? null : newPageUseLastUrl;
-                    }
-
-                    if (root.TryGetProperty("webRtcPacingBps", out var pbProp))
-                    {
-                        var webRtcPacingBps = pbProp.ValueKind == JsonValueKind.String ? pbProp.GetString() : null;
-                        settings.WebRtcPacingBps = string.IsNullOrEmpty(webRtcPacingBps) ? null : webRtcPacingBps;
-                    }
-
-                    if (root.TryGetProperty("webRtcIceServers", out var isProp))
-                    {
-                        var webRtcIceServers = isProp.ValueKind == JsonValueKind.String ? isProp.GetString() : null;
-                        settings.WebRtcIceServers = string.IsNullOrEmpty(webRtcIceServers) ? null : webRtcIceServers;
-                    }
-
-                    if (root.TryGetProperty("sessionTimeoutSeconds", out var stProp))
-                    {
-                        var sessionTimeoutSeconds = stProp.ValueKind == JsonValueKind.String ? stProp.GetString() : null;
-                        settings.SessionTimeoutSeconds = string.IsNullOrEmpty(sessionTimeoutSeconds) ? null : sessionTimeoutSeconds;
-                    }
-
-                    if (root.TryGetProperty("manifestTtlSeconds", out var mtProp))
-                    {
-                        var manifestTtlSeconds = mtProp.ValueKind == JsonValueKind.String ? mtProp.GetString() : null;
-                        settings.ManifestTtlSeconds = string.IsNullOrEmpty(manifestTtlSeconds) ? null : manifestTtlSeconds;
-                    }
-
-                    if (root.TryGetProperty("encoderSettings", out var esProp) && esProp.ValueKind == JsonValueKind.Object)
-                    {
-                        settings.EncoderSettings ??= new Dictionary<string, string>();
-                        foreach (var prop in esProp.EnumerateObject())
-                        {
-                            var value = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : null;
-                            if (string.IsNullOrEmpty(value))
-                            {
-                                settings.EncoderSettings.Remove(prop.Name);
-                            }
-                            else
-                            {
-                                settings.EncoderSettings[prop.Name] = value;
-                            }
-                        }
-                    }
-
-                    });
-                    return JsonSerializer.Serialize(new { ok = true });
-                }
-
                 case "getCacheInfo":
                 {
                     var (sizeBytes, tenantCount) = MeasureWorkerCache();
@@ -413,6 +253,41 @@ namespace Xilium.CefGlue.Broker
             }
         }
 
+        internal static Dictionary<string, object> RuntimeSnapshot()
+        {
+            static string Env(string name) => Environment.GetEnvironmentVariable(name);
+
+            return new Dictionary<string, object>
+            {
+                [Storage.BrokerDb.RuntimeActive] = new Dictionary<string, object>
+                {
+                    ["VideoEncoder"] = Env("CEFGLUE_VIDEO_ENCODER"),
+                    ["ConnectionMode"] = Program.ActiveConnectionMode,
+                    ["AudioBitrateKbps"] = Env("CEFGLUE_OPUS_BITRATE_KBPS"),
+                    ["DisableGpu"] = Env("CEFGLUE_DISABLE_GPU"),
+                    ["TextureEnable"] = Env("CEFGLUE_TEXTURE_ENABLE"),
+                    ["DiskCacheSizeBytes"] = Env("CEFGLUE_DISK_CACHE_SIZE_BYTES"),
+                    ["MediaCacheSizeBytes"] = Env("CEFGLUE_MEDIA_CACHE_SIZE_BYTES"),
+                    ["DefaultUrl"] = Env("CEFGLUE_DEFAULT_URL"),
+                    ["NewPageUseLastUrl"] = Env("CEFGLUE_NEW_PAGE_USE_LAST_URL"),
+                    ["WebRtcPacingBps"] = Env("CEFGLUE_WEBRTC_VIDEO_PACING_BPS"),
+                    ["WebRtcIceServers"] = Env("CEFGLUE_WEBRTC_ICE_SERVERS"),
+                    ["SessionTimeoutSeconds"] = Env("CEFGLUE_ABANDON_GRACE_SECONDS"),
+                    ["ManifestTtlSeconds"] = Program.ActiveManifestTtlSeconds,
+                    ["EncoderSettings"] = KnownEncoderSettingEnvVars
+                        .Where(name => !string.IsNullOrEmpty(Env(name)))
+                        .ToDictionary(name => name, Env),
+                },
+                [Storage.BrokerDb.RuntimeUseWebRtc] = Env("CEFGLUE_USE_WEBRTC"),
+                [Storage.BrokerDb.RuntimeIsolationMode] = Program.IsolationMode,
+                [Storage.BrokerDb.RuntimeIsolationSwitch] = IsolationModeGuard.LastSwitch is { } sw
+                    ? new { from = sw.From, to = sw.To, atUtc = sw.AtUtc, wipeOk = sw.WipeOk }
+                    : null,
+                [Storage.BrokerDb.RuntimeWorkerExePath] = ProcessSpawner.WorkerExePath,
+                [Storage.BrokerDb.RuntimeAvailableEncoders] = Program.AvailableEncoders,
+            };
+        }
+
         private static void RegisterAdminWatch(int pid, string exePath, string[] args, Dictionary<string, string> env)
         {
             AdminWatch previous;
@@ -449,6 +324,13 @@ namespace Xilium.CefGlue.Broker
 
                     if (IsProcessAlive(watch.Pid))
                     {
+                        continue;
+                    }
+
+                    if (FindRunningAdmin(watch.ExePath) is { } otherPid)
+                    {
+                        Console.WriteLine($"[Broker] Admin (pid={watch.Pid}) exited, but Admin pid={otherPid} is already running - watching it instead of relaunching.");
+                        watch.Pid = otherPid;
                         continue;
                     }
 
@@ -498,6 +380,33 @@ namespace Xilium.CefGlue.Broker
             catch (OperationCanceledException)
             {
             }
+        }
+
+        private static int? FindRunningAdmin(string exePath)
+        {
+            if (string.IsNullOrEmpty(exePath))
+            {
+                return null;
+            }
+
+            foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exePath)))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        if (!process.HasExited && string.Equals(process.MainModule?.FileName, exePath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return process.Id;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return null;
         }
 
         private static bool IsProcessAlive(int pid)

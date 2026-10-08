@@ -46,10 +46,9 @@ namespace Xilium.CefGlue.Common.InternalHandlers
                 if (_owner.UseNativeContextMenu)
                     return false;
 
-                var result = _owner.ContextMenuHandler?.HandleRunContextMenu(browser, frame, parameters, model, callback);
-                if (result != null)
+                if (_owner.ContextMenuHandler?.HandleRunContextMenu(browser, frame, parameters, model, callback) == true)
                 {
-                    return result.Value;
+                    return true;
                 }
 
                 _owner.HandleOpenContextMenu(parameters, model, callback);

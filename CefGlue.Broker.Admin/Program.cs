@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Xilium.CefGlue.Broker.Admin.Components;
+using Xilium.CefGlue.Headless.Service;
 
 namespace Xilium.CefGlue.Broker.Admin
 {
@@ -37,15 +39,66 @@ namespace Xilium.CefGlue.Broker.Admin
             return ok ? 0 : 1;
         }
 
+        private static bool IsPortFree(int port)
+        {
+            try
+            {
+                var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, port);
+                probe.Start();
+                probe.Stop();
+                return true;
+            }
+            catch (System.Net.Sockets.SocketException)
+            {
+                return false;
+            }
+        }
+
+        private static void WaitForKeyOrTimeout(TimeSpan timeout)
+        {
+            try
+            {
+                if (Console.IsInputRedirected)
+                {
+                    return;
+                }
+
+                Console.WriteLine($"Press any key to close (closes by itself in {timeout.TotalSeconds:0}s).");
+                var deadline = DateTime.UtcNow + timeout;
+                while (DateTime.UtcNow < deadline)
+                {
+                    if (Console.KeyAvailable)
+                    {
+                        Console.ReadKey(true);
+                        return;
+                    }
+                    System.Threading.Thread.Sleep(100);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        private static ExePaths _exePaths;
+
+        internal static void LogError(string message) =>
+            ErrorLog.Append(ErrorLog.AdminFileName, Path.GetDirectoryName(_exePaths?.WorkerExePath ?? "") is { Length: > 0 } workerDir ? workerDir : AppContext.BaseDirectory, message);
+
         private static async Task Main(string[] args)
         {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                LogError($"Unhandled exception - admin pid {Environment.ProcessId}{Environment.NewLine}{e.ExceptionObject}");
+
             ConsoleQuickEdit.Disable();
 
             var autoStartBroker = args.Any(a => string.Equals(a, "--auto-start-broker", StringComparison.OrdinalIgnoreCase));
             var childArgs = args.Where(a => !string.Equals(a, "--auto-start-broker", StringComparison.OrdinalIgnoreCase)).ToArray();
 
+            var databaseOk = AdminDb.TryOpen();
             var adminSettings = new AdminSettingsStore();
             var exePaths = new ExePaths(adminSettings);
+            _exePaths = exePaths;
 
             var encoderCommand = Array.FindIndex(args, a => a.Equals("--install-encoder", StringComparison.OrdinalIgnoreCase) || a.Equals("--remove-encoder", StringComparison.OrdinalIgnoreCase));
             if (encoderCommand >= 0)
@@ -61,6 +114,16 @@ namespace Xilium.CefGlue.Broker.Admin
             var ownPort = int.TryParse(Environment.GetEnvironmentVariable("CEFGLUE_BROKER_ADMIN_UI_PORT"), out var parsedOwnPort)
                 ? parsedOwnPort
                 : 57402;
+
+            using var singleInstance = new System.Threading.Mutex(true, $@"Local\CefGlue.Broker.Admin.{ownPort}", out var isFirstInstance);
+            if (!isFirstInstance || !IsPortFree(ownPort))
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[Admin] Existing instance already running: http://127.0.0.1:{ownPort}/admin");
+                Console.ResetColor();
+                WaitForKeyOrTimeout(TimeSpan.FromSeconds(10));
+                return;
+            }
 
             var workerSource = new RemoteWorkerSource(brokerAdminPort);
             var supervisor = new BrokerSupervisor(exePaths, childArgs, workerSource);
@@ -102,7 +165,11 @@ namespace Xilium.CefGlue.Broker.Admin
             Console.WriteLine($"CefGlue.Broker.Admin listening on http://127.0.0.1:{ownPort}/admin (loopback-only)");
             Console.WriteLine($"Managing broker exe '{exePaths.BrokerExePath ?? "(not set - set it on the Admin page)"}', talking to its admin API at http://127.0.0.1:{brokerAdminPort}");
 
-            if (autoStartBroker)
+            if (autoStartBroker && !databaseOk)
+            {
+                Console.WriteLine("[Admin] --auto-start-broker ignored - the settings database is unavailable (see above).");
+            }
+            else if (autoStartBroker)
             {
                 await supervisor.StartAsync();
             }

@@ -91,8 +91,7 @@ namespace Xilium.CefGlue.Headless.Server
 
             if (previous != null && previous != socket)
             {
-                try { _ = previous.CloseAsync(WebSocketCloseStatus.NormalClosure, "replaced by a newer connection", CancellationToken.None); }
-                catch { }
+                _ = NotifyReplacedAndCloseAsync(previous);
             }
 
             var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -314,6 +313,16 @@ namespace Xilium.CefGlue.Headless.Server
             {
                 _sendLock.Release();
             }
+        }
+
+        private static readonly byte[] ReplacedMessage = Encoding.UTF8.GetBytes("{\"type\":\"replaced\"}");
+
+        private async Task NotifyReplacedAndCloseAsync(WebSocket previous)
+        {
+            await SendQueued(previous, ReplacedMessage, WebSocketMessageType.Text);
+
+            try { await previous.CloseAsync(WebSocketCloseStatus.NormalClosure, "replaced by a newer connection", CancellationToken.None); }
+            catch { }
         }
 
         private async Task SendQueued(WebSocket socket, byte[] data, WebSocketMessageType type)

@@ -20,7 +20,7 @@ namespace Xilium.CefGlue.Headless.Service
         private static readonly JsonSerializerOptions CamelCaseJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         private string _selectedId;
         private bool _disposed;
-        private bool _overlayEnabled = true;
+        private bool _overlayEnabled;
 
         private FramePixelFormat _frameFormat = FramePixelFormat.RawBgra;
 
@@ -157,6 +157,14 @@ namespace Xilium.CefGlue.Headless.Service
 
                     case "text":
                         InjectText(GetString(root, "value"));
+                        break;
+
+                    case "pasteImage":
+                        PasteImageToPage(GetString(root, "mime"), GetString(root, "name"), GetString(root, "data"));
+                        break;
+
+                    case "screenshot":
+                        CaptureScreenshot(GetBool(root, "fullPage"));
                         break;
 
                     case "resize":
@@ -378,6 +386,9 @@ namespace Xilium.CefGlue.Headless.Service
                 }
             };
             downloadHandler.DownloadFailed += filePath => TryDeleteTempFile(filePath);
+
+            browser.RequestHandler = new HeadlessRequestHandler(session);
+            browser.ContextMenuHandler = new HeadlessContextMenuHandler(url => AddBrowser(url, existingContextId: session.ContextId));
 
             var fileDialogHandler = new HeadlessFileDialogHandler();
             browser.DialogHandler = fileDialogHandler;
@@ -1025,6 +1036,201 @@ namespace Xilium.CefGlue.Headless.Service
             "&&typeof a.selectionStart==='number'&&a.selectionEnd>a.selectionStart)" +
             "{return a.value.substring(a.selectionStart,a.selectionEnd);}" +
             "return window.getSelection?String(window.getSelection()):'';";
+
+        private async void CaptureScreenshot(bool fullPage)
+        {
+            if (_selectedId == null || !_sessions.TryGetValue(_selectedId, out var session))
+            {
+                return;
+            }
+
+            var sessionIdAtRequestTime = _selectedId;
+            if (fullPage)
+            {
+                _frameSocketServer.BroadcastText(JsonSerializer.Serialize(new { type = "busy", text = "Capturing full page…" }));
+            }
+            try
+            {
+                if (fullPage)
+                {
+                    await CaptureFullPageInSlicesAsync(session, sessionIdAtRequestTime);
+                    return;
+                }
+
+                using var shot = await DevToolsCall.InvokeAsync(session.Browser, "Page.captureScreenshot", new { format = "png" }, TimeSpan.FromSeconds(30));
+                var png = shot.RootElement.GetProperty("data").GetString();
+                if (_disposed || sessionIdAtRequestTime != _selectedId || string.IsNullOrEmpty(png))
+                {
+                    return;
+                }
+
+                var name = $"{ScreenshotBaseName(session)} {DateTime.Now:yyyy-MM-dd HHmmss}.png";
+                Console.WriteLine($"[Screenshot] visible area: {png.Length * 3 / 4 / 1024} KB");
+                _frameSocketServer.BroadcastText(JsonSerializer.Serialize(new { type = "download", fileName = name, mimeType = "image/png", fileBase64 = png }));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Screenshot] Failed: {ex.Message}");
+            }
+            finally
+            {
+                if (fullPage && !_disposed)
+                {
+                    _frameSocketServer.BroadcastText(JsonSerializer.Serialize(new { type = "busy" }));
+                }
+            }
+        }
+
+        private async Task CaptureFullPageInSlicesAsync(BrowserSession session, string sessionIdAtRequestTime)
+        {
+            var frame = session.Browser.GetMainFrame();
+            if (frame == null)
+            {
+                return;
+            }
+
+            var start = await PageScrollStateAsync(session, frame);
+            var viewHeight = Math.Max(start.ViewHeight, 100);
+            var maxHeight = Math.Floor(16384 / Math.Max(start.Dpr, 1));
+            var name = $"{ScreenshotBaseName(session)} {DateTime.Now:yyyy-MM-dd HHmmss} full page.png";
+            try
+            {
+                frame.ExecuteJavaScript(HideScrollbarScript, "", 0);
+                await Task.Delay(100);
+
+                for (var y = viewHeight; y < Math.Min((await PageScrollStateAsync(session, frame)).ScrollHeight, maxHeight); y += viewHeight)
+                {
+                    ScrollTo(frame, 0, y);
+                    await Task.Delay(150);
+                }
+
+                var total = Math.Min((await PageScrollStateAsync(session, frame)).ScrollHeight, maxHeight);
+                var count = Math.Max(1, (int)Math.Ceiling(total / viewHeight));
+                for (var i = 0; i < count; i++)
+                {
+                    if (_disposed || sessionIdAtRequestTime != _selectedId)
+                    {
+                        return;
+                    }
+
+                    ScrollTo(frame, 0, Math.Min(i * viewHeight, Math.Max(total - viewHeight, 0)));
+                    await Task.Delay(i == 0 ? 400 : 250);
+                    var top = (await PageScrollStateAsync(session, frame)).ScrollY;
+                    using var shot = await DevToolsCall.InvokeAsync(session.Browser, "Page.captureScreenshot", new { format = "png" }, TimeSpan.FromSeconds(30));
+                    _frameSocketServer.BroadcastText(JsonSerializer.Serialize(new
+                    {
+                        type = "screenshotPart",
+                        index = i,
+                        count,
+                        top,
+                        viewHeight,
+                        totalHeight = total,
+                        fileName = name,
+                        data = shot.RootElement.GetProperty("data").GetString(),
+                    }));
+
+                    if (i == 0 && count > 1)
+                    {
+                        frame.ExecuteJavaScript(HideFixedElementsScript, "", 0);
+                    }
+                }
+
+                Console.WriteLine($"[Screenshot] full page: {count} screen(s), {total:0} px{(start.ScrollHeight > maxHeight ? " (page taller than the maximum image - cut at the bottom)" : "")}");
+            }
+            finally
+            {
+                frame.ExecuteJavaScript(RestoreFixedElementsScript, "", 0);
+                frame.ExecuteJavaScript(RestoreScrollbarScript, "", 0);
+                ScrollTo(frame, start.ScrollX, start.ScrollY);
+            }
+        }
+
+        private const string HideScrollbarScript =
+            "(function(){var s=document.createElement('style');s.id='__cefglueShotNoScrollbar';" +
+            "s.textContent='html,body{scrollbar-width:none!important}html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important}';" +
+            "(document.head||document.documentElement).appendChild(s);})();";
+
+        private const string RestoreScrollbarScript =
+            "(function(){var s=document.getElementById('__cefglueShotNoScrollbar');if(s)s.remove();})();";
+
+        private const string HideFixedElementsScript =
+            "(function(){var a=[];document.querySelectorAll('body *').forEach(function(e){var p=getComputedStyle(e).position;" +
+            "if(p==='fixed'||p==='sticky'){a.push([e,e.style.visibility]);e.style.visibility='hidden';}});window.__cefglueShotHidden=a;})();";
+
+        private const string RestoreFixedElementsScript =
+            "(function(){(window.__cefglueShotHidden||[]).forEach(function(x){x[0].style.visibility=x[1];});delete window.__cefglueShotHidden;})();";
+
+        private static void ScrollTo(CefFrame frame, double x, double y) =>
+            frame.ExecuteJavaScript(FormattableString.Invariant($"window.scrollTo({{left:{x},top:{y},behavior:'instant'}});"), "", 0);
+
+        private readonly record struct PageScrollState(double ScrollX, double ScrollY, double ViewHeight, double ScrollHeight, double Dpr);
+
+        private static async Task<PageScrollState> PageScrollStateAsync(BrowserSession session, CefFrame frame)
+        {
+            const string Script = "return JSON.stringify([window.scrollX, window.scrollY, window.innerHeight, document.documentElement.scrollHeight, window.devicePixelRatio || 1]);";
+            var v = JsonSerializer.Deserialize<double[]>(await session.Browser.EvaluateJavaScript<string>(Script, frame, timeout: TimeSpan.FromSeconds(2)));
+            return new PageScrollState(v[0], v[1], v[2], v[3], v[4]);
+        }
+
+        private static string ScreenshotBaseName(BrowserSession session)
+        {
+            var name = !string.IsNullOrWhiteSpace(session.Title) ? session.Title
+                : Uri.TryCreate(session.CurrentUrl, UriKind.Absolute, out var uri) ? uri.Host : "screenshot";
+            foreach (var c in Path.GetInvalidFileNameChars())
+            {
+                name = name.Replace(c, '_');
+            }
+            name = name.Trim();
+            return name.Length > 80 ? name.Substring(0, 80).Trim() : name.Length == 0 ? "screenshot" : name;
+        }
+
+        private const int MaxPastedImageBase64Length = 24 * 1024 * 1024;
+
+        private const string PasteImageScript =
+            "(function(b64,mime,name){" +
+            "var bin=atob(b64),bytes=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);" +
+            "var file=new File([bytes],name,{type:mime});var dt=new DataTransfer();dt.items.add(file);" +
+            "var el=document.activeElement||document.body;while(el&&el.shadowRoot&&el.shadowRoot.activeElement)el=el.shadowRoot.activeElement;" +
+            "var ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true,composed:true});" +
+            "if(!el.dispatchEvent(ev))return 'handled';" +
+            "if(el.isContentEditable){document.execCommand('insertImage',false,'data:'+mime+';base64,'+b64);return 'inserted';}" +
+            "return 'unhandled';})";
+
+        private async void PasteImageToPage(string mime, string name, string base64)
+        {
+            if (string.IsNullOrEmpty(base64) || mime == null || !mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (base64.Length > MaxPastedImageBase64Length)
+            {
+                Console.WriteLine($"[Clipboard] Pasted image too large ({base64.Length / 1024 / 1024} MB base64) - ignored");
+                return;
+            }
+
+            if (_selectedId == null || !_sessions.TryGetValue(_selectedId, out var session))
+            {
+                return;
+            }
+
+            var frame = session.Browser.GetFocusedFrame() ?? session.Browser.GetMainFrame();
+            if (frame == null)
+            {
+                return;
+            }
+
+            var script = $"return {PasteImageScript}({JsonSerializer.Serialize(base64)},{JsonSerializer.Serialize(mime)},{JsonSerializer.Serialize(string.IsNullOrEmpty(name) ? "image.png" : name)});";
+            try
+            {
+                var outcome = await session.Browser.EvaluateJavaScript<string>(script, frame, timeout: TimeSpan.FromSeconds(10));
+                Console.WriteLine($"[Clipboard] paste image: {mime}, {base64.Length * 3 / 4 / 1024} KB -> {outcome}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Clipboard] Pasting the image failed: {ex.Message}");
+            }
+        }
 
         private async void CopySelectionToClient(bool cut)
         {

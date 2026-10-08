@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Builds the ready-to-run release zip: artifacts\CefAsService-v<Version>-win-x64.zip.
 
@@ -40,6 +40,13 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 # No debug info (it embeds local paths), no git hash in version strings, reproducible builds.
 $releaseProps = @("-p:DebugType=none", "-p:DebugSymbols=false", "-p:IncludeSourceRevisionInInformationalVersion=false", "-p:ContinuousIntegrationBuild=true")
 
+# A previous build with debug info (e.g. tools/ExportPublic --build) leaves *.pdb in the BrowserProcess
+# publish folder; CefGlue.CopyLocal.props globs that folder at evaluation time, so the pdbs are still
+# listed after this build's DebugType=none publish removed them -> MSB3030. Start it clean - bin AND
+# obj: with obj left, Compile is up to date, so PublishApp (which only runs after a real compile)
+# never refills the publish folder and the worker ends up with no CefGlueBrowserProcess.
+foreach ($dir in "bin", "obj") { Remove-Item -Recurse -Force (Join-Path $root "CefGlue.BrowserProcess\$dir") -ErrorAction SilentlyContinue }
+
 Write-Host "Building the solution (Release x64)..."
 dotnet build (Join-Path $root "CefAsService.sln") -c Release -p:Platform=x64 @releaseProps --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw "Solution build failed." }
@@ -55,8 +62,11 @@ foreach ($app in $apps) {
     $out = Join-Path $stage $app.Folder
     Write-Host "Publishing $($app.Folder)..."
     # BuildingSolutionFile=true: Admin must not rebuild Broker/Worker itself in the middle of this.
+    # It also makes MSBuild drop Configuration/Platform on project references (no .sln config here),
+    # which built CefGlue.BrowserProcess as Debug|AnyCPU and failed its editbin step (LNK1342) -
+    # ShouldUnsetParentConfigurationAndPlatform=false keeps references on Release|x64.
     dotnet publish (Join-Path $root $app.Project) -c Release -r $rid --self-contained true `
-        -p:Platform=x64 -p:BuildingSolutionFile=true -p:PublishReadyToRun=false @releaseProps -o $out --nologo -v quiet
+        -p:Platform=x64 -p:BuildingSolutionFile=true -p:ShouldUnsetParentConfigurationAndPlatform=false -p:PublishReadyToRun=false @releaseProps -o $out --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Publishing $($app.Folder) failed." }
 
     # The extras come from the solution build output, never overwriting what publish produced.
@@ -83,12 +93,17 @@ foreach ($app in $apps) {
     Get-ChildItem $out -Recurse -File -Include "*.pdb", "*.xml" | Remove-Item -Force
 
     # Runtime state a previous run may have left in the build output - never ship it.
-    Get-ChildItem $out -Recurse -Include "broker-settings.json", "broker-workers.json", "admin-settings.json", "*.pfx", "cef.log" -File |
+    Get-ChildItem $out -Recurse -Include "broker.db", "broker-settings.json", "broker-workers.json", "admin-settings.json", "*.pfx", "cef.log" -File |
         Remove-Item -Force
 }
 
 $worker = Join-Path $stage "Worker"
-foreach ($required in "runtimes\win-x64\native\libcef.dll", "CefGlueBrowserProcess\Xilium.CefGlue.BrowserProcess.exe", "plugins\encoders\openh264\plugin.json", "datachannel.dll", "opus.dll") {
+
+# CefGlue.Common references the BrowserProcess exe project, so the SDK drops its apphost, deps.json and
+# (framework-dependent) runtimeconfig.json in the worker root too - without its dll. CEF only runs
+# the self-contained copy in CefGlueBrowserProcess\; the stray one just shows "install .NET" if run.
+Get-ChildItem $worker -File -Filter "Xilium.CefGlue.BrowserProcess.*" | Remove-Item -Force
+foreach ($required in "runtimes\win-x64\native\libcef.dll", "CefGlueBrowserProcess\Xilium.CefGlue.BrowserProcess.exe", "plugins\encoders\openh264\plugin.json", "datachannel.dll", "opus.dll", "sqlite3.dll") {
     if (-not (Test-Path (Join-Path $worker $required))) { throw "Worker is missing $required." }
 }
 
@@ -202,6 +217,13 @@ if ($silk) {
     [void]$notices.AppendLine("")
     [void]$notices.AppendLine($silkMit)
 }
+
+# sqlite3.dll (official sqlite.org build, next to Admin, Broker and Worker): public domain, no
+# license file to copy.
+[void]$notices.AppendLine("=" * 78)
+[void]$notices.AppendLine("SQLite (sqlite3.dll)")
+[void]$notices.AppendLine("")
+[void]$notices.AppendLine("SQLite is in the public domain - https://www.sqlite.org/copyright.html")
 
 Set-Content (Join-Path $stage "THIRD-PARTY-NOTICES.txt") $notices.ToString() -Encoding UTF8
 
@@ -369,12 +391,13 @@ KNOWN ISSUES
 
 FILES
 -----
-  Admin\admin-settings.json     admin password (hashed), exe paths
-  Broker\broker-settings.json   everything set on the Admin page
+  C:\ProgramData\CefGlue\broker.db
+                                every setting from the Admin page and the
+                                admin password (hashed) - one SQLite file
   C:\ProgramData\CefGlue        browser profiles (logins) and caches
                                 (hidden folder)
 
-Delete these for a completely fresh start.
+Delete that folder for a completely fresh start.
 
 See LICENSE, LICENSE-BINARY.txt and THIRD-PARTY-NOTICES.txt.
 "@ | Set-Content (Join-Path $stage "README.txt") -Encoding UTF8

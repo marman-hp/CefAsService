@@ -190,13 +190,18 @@ namespace Xilium.CefGlue.Broker
                         Console.WriteLine($"[Broker] Worker for tenant '{registeredTenantId}' disconnected - removed from registry.");
                     }
 
-                    Program.SpawnedProcesses.TryRemove(registeredTenantId, out _);
+                    if (Program.SpawnedProcesses.TryRemove(registeredTenantId, out var exitedProcess))
+                    {
+                        _ = Program.ReportWorkerExitAsync(registeredTenantId, exitedProcess);
+                    }
                     WorkerManifest.MarkGone(registeredTenantId, registeredAddress);
 
                     Program.SpawnLocks.TryRemove(registeredTenantId, out _);
                 }
             }
         }
+
+        internal const int WorkerGoneCloseCode = 4001;
 
         private static async Task HandleRelay(HttpContext context)
         {
@@ -235,11 +240,19 @@ namespace Xilium.CefGlue.Broker
                 return;
             }
 
-            await Task.WhenAny(
-                PumpAsync(clientSocket, workerSocket),
-                PumpAsync(workerSocket, clientSocket));
+            var fromWorker = PumpAsync(workerSocket, clientSocket);
+            var finished = await Task.WhenAny(PumpAsync(clientSocket, workerSocket), fromWorker);
 
-            try { await clientSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); } catch { }
+            var workerGone = finished == fromWorker && workerSocket.CloseStatus == null;
+
+            try
+            {
+                await clientSocket.CloseAsync(
+                    workerGone ? (WebSocketCloseStatus)WorkerGoneCloseCode : WebSocketCloseStatus.NormalClosure,
+                    workerGone ? "worker-gone" : null,
+                    CancellationToken.None);
+            }
+            catch { }
             try { await workerSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); } catch { }
         }
 
@@ -274,6 +287,9 @@ namespace Xilium.CefGlue.Broker
             {
             }
         }
+
+        private static string Transport() =>
+            string.Equals(Environment.GetEnvironmentVariable("CEFGLUE_USE_WEBRTC"), "1", StringComparison.OrdinalIgnoreCase) ? "webrtc" : "websocket";
 
         private static object IsolationInfo() => new { mode = Program.IsolationMode, epoch = IsolationModeGuard.Epoch };
 
@@ -355,7 +371,7 @@ namespace Xilium.CefGlue.Broker
                 NoteClient(context, requestedKeyId);
                 var reconnectAddress = BuildClientFacingAddress(context, existing.Address);
                 Console.WriteLine($"[Broker] Reconnect: tenant '{requestedKeyId}' -> {reconnectAddress}");
-                return Results.Ok(new { keyId = requestedKeyId, address = reconnectAddress, isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds() });
+                return Results.Ok(new { keyId = requestedKeyId, address = reconnectAddress, isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport() });
             }
 
             var keyId = requestedKeyId ?? Guid.NewGuid().ToString("n");
@@ -372,7 +388,7 @@ namespace Xilium.CefGlue.Broker
                 {
                     var reconnectAddress = BuildClientFacingAddress(context, registered.Address);
                     Console.WriteLine($"[Broker] Reconnect (post-lock): tenant '{keyId}' -> {reconnectAddress}");
-                    return Results.Ok(new { keyId, address = reconnectAddress, isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds() });
+                    return Results.Ok(new { keyId, address = reconnectAddress, isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport() });
                 }
 
                 if (Program.SpawnedProcesses.TryGetValue(keyId, out var existingProcess) && !existingProcess.HasExited)
@@ -404,12 +420,13 @@ namespace Xilium.CefGlue.Broker
             {
                 if (Program.Registry.TryGet(keyId, out var record))
                 {
-                    return Results.Ok(new { keyId, address = BuildClientFacingAddress(context, record.Address), isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds() });
+                    return Results.Ok(new { keyId, address = BuildClientFacingAddress(context, record.Address), isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport() });
                 }
 
                 if (process.HasExited)
                 {
                     Console.WriteLine($"[Broker] Worker process for tenant '{keyId}' exited before registering (code {process.ExitCode}).");
+                    _ = Program.ReportWorkerExitAsync(keyId, process);
                     return Results.Problem("Worker process exited before it finished starting.", statusCode: 500);
                 }
 

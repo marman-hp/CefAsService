@@ -83,6 +83,30 @@
           "default": "",
           "title": "Blank = auto, min(logical cores, 8)",
           "note": "Blank = automatic"
+        },
+        {
+          "key": "SLICE_KB",
+          "label": "Slice size",
+          "type": "number",
+          "min": "4",
+          "max": "4096",
+          "step": "1",
+          "unit": "KB",
+          "default": "1024",
+          "title": "OpenH264 only runs its threads across slices. 1024 KB keeps almost every frame one slice (one thread busy); smaller splits busy frames such as video and scrolling. Ignored when Slices is set.",
+          "note": "Smaller = more threads busy"
+        },
+        {
+          "key": "SLICES",
+          "label": "Slices",
+          "type": "number",
+          "min": "1",
+          "max": "35",
+          "step": "1",
+          "placeholder": "By size",
+          "default": "",
+          "title": "Blank = split by Slice size. A number = exactly that many slices per frame (1-35), usually the same as the thread cap.",
+          "note": "Blank = by slice size"
         }
       ]
     }

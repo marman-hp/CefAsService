@@ -111,7 +111,7 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 - **No "Run as administrator" needed.** Admin, Broker and workers run as a normal user: every port is above 1024, and the self-signed certificate goes into your own (CurrentUser) certificate store.
 - **Firewall:** the first time, Windows asks to allow the Broker and the worker on the network. Clicking *Allow access* may show a UAC prompt, because creating a firewall rule needs admin rights; the app itself still runs as a normal user. If you decline, only this machine (localhost) can connect.
 - **Certificate prompt:** on the first Start, Windows asks to install the Broker's self-signed certificate. *Yes* makes `https://localhost:57443` warning-free on this machine. *No* is fine too, the browser just shows a warning.
-- **Extract to a writable folder**, not `C:\Program Files`: the settings files (`Admin\admin-settings.json`, `Broker\broker-settings.json`) and the OpenH264 download are written next to the executables. Browser profiles and caches live in `C:\ProgramData\CefGlue` (a hidden folder).
+- **Extract to a writable folder**, not `C:\Program Files`: the OpenH264 download is written next to the executables. Settings (`broker.db`, one SQLite file shared by Admin, Broker and workers), browser profiles and caches live in `C:\ProgramData\CefGlue` (a hidden folder).
 - **Don't mix elevated and normal runs.** Files created while running as administrator may not be writable by a normal run afterwards. Pick one and stick to it.
 
 ## Projects
@@ -156,4 +156,4 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 
 - **Source code:** MIT. See `LICENSE` (CefGlue, Xilium/OutSystems) and the `LICENSE` file in each project folder.
 - **Prebuilt components in `lib/`:** free for personal and commercial use, binary only. See `LICENSE-BINARY.txt`.
-- **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.
+- **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264, SQLite) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.

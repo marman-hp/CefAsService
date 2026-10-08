@@ -50,75 +50,124 @@ namespace Xilium.CefGlue.Headless.Service
             public string ContextId { get; set; }
         }
 
-        private static void ApplyLiveBrokerSettingsIfAvailable()
+        private static void ApplyBrokerSettingsFromDatabase()
         {
-            var adminPort = int.TryParse(Environment.GetEnvironmentVariable("CEFGLUE_BROKER_ADMIN_PORT"), out var parsedAdminPort)
-                ? parsedAdminPort
-                : 57401;
-
-            var settings = WorkerControlPlaneClient.TryGetSettingsAsync(adminPort).GetAwaiter().GetResult();
-            if (settings is not { } root)
+            var path = Xilium.CefGlue.Broker.Storage.BrokerDb.PathFor(AppContext.BaseDirectory);
+            try
             {
+                using var db = Xilium.CefGlue.Broker.Storage.BrokerDb.OpenReadOnly(path);
+                var saved = Xilium.CefGlue.Broker.Storage.BrokerDb.ReadJson(db, Xilium.CefGlue.Broker.Storage.BrokerDb.Settings);
+                string Saved(string key) => Xilium.CefGlue.Broker.Storage.BrokerDb.AsString(saved.GetValueOrDefault(key));
+
+                void Apply(string envVarName, string value)
+                {
+                    if (!string.IsNullOrEmpty(value))
+                    {
+                        Environment.SetEnvironmentVariable(envVarName, value);
+                    }
+                }
+
+                Apply("CEFGLUE_VIDEO_ENCODER", Saved("VideoEncoder"));
+                Apply("CEFGLUE_OPUS_BITRATE_KBPS", Saved("AudioBitrateKbps"));
+                Apply("CEFGLUE_DISABLE_GPU", Saved("DisableGpu"));
+                Apply("CEFGLUE_TEXTURE_ENABLE", Saved("TextureEnable"));
+                Apply("CEFGLUE_DISK_CACHE_SIZE_BYTES", Saved("DiskCacheSizeBytes"));
+                Apply("CEFGLUE_MEDIA_CACHE_SIZE_BYTES", Saved("MediaCacheSizeBytes"));
+                Apply("CEFGLUE_WEBRTC_VIDEO_PACING_BPS", Saved("WebRtcPacingBps"));
+                Apply("CEFGLUE_WEBRTC_ICE_SERVERS", Saved("WebRtcIceServers"));
+
+                foreach (var (envVarName, value) in Xilium.CefGlue.Broker.Storage.BrokerDb.AsStringMap(saved.GetValueOrDefault("EncoderSettings")))
+                {
+                    Apply(envVarName, value);
+                }
+
+                Console.WriteLine($"[Worker] Settings read from {path}.");
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[Worker] FATAL: cannot read settings from {path} ({ex.GetType().Name}: {ex.Message}) - worker stopped.");
+                Console.ResetColor();
+                ErrorLog.Append(ErrorLog.ServiceFileName, AppContext.BaseDirectory, $"Cannot read settings from {path} - worker stopped: {ex}");
+                Environment.Exit(4);
+            }
+        }
+
+        internal static string CefLogFileName { get; private set; } = "cef.log";
+
+        private static string PrepareCefLogPath(bool isTenantScoped)
+        {
+            if (!isTenantScoped)
+            {
+                return Path.Combine(AppContext.BaseDirectory, CefLogFileName);
+            }
+
+            var directory = ErrorLog.LogDirectory(AppContext.BaseDirectory);
+            CefLogFileName = $"cef-{TenantCachePaths.TenantDirName(TenantId)}.log";
+            var path = Path.Combine(directory, CefLogFileName);
+
+            try
+            {
+                Directory.CreateDirectory(directory);
+
+                var prevPath = Path.ChangeExtension(path, ".prev.log");
+                for (var attempt = 0; File.Exists(path) && attempt < 8; attempt++)
+                {
+                    try
+                    {
+                        File.Move(path, prevPath, overwrite: true);
+                    }
+                    catch (IOException)
+                    {
+                        Thread.Sleep(250);
+                    }
+                }
+
+                if (File.Exists(path))
+                {
+                    using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using var target = new FileStream(prevPath, FileMode.Create, FileAccess.Write);
+                    source.CopyTo(target);
+                }
+
+                foreach (var old in Directory.EnumerateFiles(directory, "cef-*.log"))
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(old) > TimeSpan.FromDays(14))
+                    {
+                        try { File.Delete(old); } catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Program] Could not prepare CEF log folder '{directory}': {ex.Message}");
+            }
+
+            return path;
+        }
+
+        private static void UseHighResolutionTimer()
+        {
+            if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("CEFGLUE_WEBRTC_HIGHRES_TIMER") == "0")
+            {
+                Console.WriteLine("Timer: Windows default resolution (CEFGLUE_WEBRTC_HIGHRES_TIMER=0, or not Windows).");
                 return;
             }
 
-            static string PendingOrActive(JsonElement root, string pendingName, string activeName)
-            {
-                string Read(string name) =>
-                    root.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
-                var pending = Read(pendingName);
-                return !string.IsNullOrEmpty(pending) ? pending : Read(activeName);
-            }
-
-            void Apply(string envVarName, string value)
-            {
-                if (!string.IsNullOrEmpty(value))
-                {
-                    Environment.SetEnvironmentVariable(envVarName, value);
-                }
-            }
-
-            Apply("CEFGLUE_VIDEO_ENCODER", PendingOrActive(root, "pendingVideoEncoder", "activeVideoEncoder"));
-            Apply("CEFGLUE_OPUS_BITRATE_KBPS", PendingOrActive(root, "pendingAudioBitrateKbps", "activeAudioBitrateKbps"));
-            Apply("CEFGLUE_DISABLE_GPU", PendingOrActive(root, "pendingDisableGpu", "activeDisableGpu"));
-            Apply("CEFGLUE_TEXTURE_ENABLE", PendingOrActive(root, "pendingTextureEnable", "activeTextureEnable"));
-            Apply("CEFGLUE_DISK_CACHE_SIZE_BYTES", PendingOrActive(root, "pendingDiskCacheSizeBytes", "activeDiskCacheSizeBytes"));
-            Apply("CEFGLUE_MEDIA_CACHE_SIZE_BYTES", PendingOrActive(root, "pendingMediaCacheSizeBytes", "activeMediaCacheSizeBytes"));
-            Apply("CEFGLUE_WEBRTC_VIDEO_PACING_BPS", PendingOrActive(root, "pendingWebRtcPacingBps", "activeWebRtcPacingBps"));
-            Apply("CEFGLUE_WEBRTC_ICE_SERVERS", PendingOrActive(root, "pendingWebRtcIceServers", "activeWebRtcIceServers"));
-
-            if (root.TryGetProperty("activeUseWebRtc", out var webRtcProp) && webRtcProp.ValueKind == JsonValueKind.String)
-            {
-                Apply("CEFGLUE_USE_WEBRTC", webRtcProp.GetString());
-            }
-
-            if (root.TryGetProperty("activeEncoderSettings", out var activeDict) && activeDict.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var prop in activeDict.EnumerateObject())
-                {
-                    if (prop.Value.ValueKind == JsonValueKind.String)
-                    {
-                        Apply(prop.Name, prop.Value.GetString());
-                    }
-                }
-            }
-
-            if (root.TryGetProperty("pendingEncoderSettings", out var pendingDict) && pendingDict.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var prop in pendingDict.EnumerateObject())
-                {
-                    if (prop.Value.ValueKind == JsonValueKind.String)
-                    {
-                        Apply(prop.Name, prop.Value.GetString());
-                    }
-                }
-            }
-
-            Console.WriteLine("[Worker] Fetched current settings live from Broker's control channel - using those instead of whatever env vars were inherited at spawn.");
+            var ok = timeBeginPeriod(1) == 0;
+            Console.WriteLine(ok
+                ? "Timer: 1 ms resolution for the WebRTC pacer (set CEFGLUE_WEBRTC_HIGHRES_TIMER=0 to turn off)."
+                : "Timer: timeBeginPeriod(1) failed - the WebRTC pacer runs on the default ~15.6 ms timer.");
         }
+
+        [System.Runtime.InteropServices.DllImport("winmm.dll")]
+        private static extern uint timeBeginPeriod(uint uPeriod);
 
         private static void Main(string[] args)
         {
+            ErrorLog.InstallUnhandledExceptionHandler(ErrorLog.ServiceFileName, AppContext.BaseDirectory, () =>
+                $"worker pid {Environment.ProcessId}, tenant '{Environment.GetEnvironmentVariable("CEFGLUE_TENANT_ID") ?? "(standalone)"}', page '{Environment.GetEnvironmentVariable("CEFGLUE_PAGE_ID")}'");
+
             if (args.Length > 0 && string.Equals(args[0], "--probe-encoders", StringComparison.OrdinalIgnoreCase))
             {
                 var stdout = Console.Out;
@@ -133,7 +182,7 @@ namespace Xilium.CefGlue.Headless.Service
             if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CEFGLUE_TENANT_ID"))
                 && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CEFGLUE_BROKER_URL")))
             {
-                ApplyLiveBrokerSettingsIfAvailable();
+                ApplyBrokerSettingsFromDatabase();
             }
 
             var useWebRtc = (Array.Exists(args, a => string.Equals(a, "--use-webrtc", StringComparison.OrdinalIgnoreCase))
@@ -142,6 +191,10 @@ namespace Xilium.CefGlue.Headless.Service
             Console.WriteLine(useWebRtc
                 ? "Transport: WebRTC (CefGlue.WebRTC.Transport) - pass --use-websocket to fall back."
                 : "Transport: WebSocket (FrameSocketServer, default) - pass --use-webrtc, or set CEFGLUE_USE_WEBRTC=1 (broker-spawned workers), to try the WebRTC transport instead.");
+            if (useWebRtc)
+            {
+                UseHighResolutionTimer();
+            }
 
             SelectedEncoderPlugin = EncoderPluginHost.Select(Environment.GetEnvironmentVariable("CEFGLUE_VIDEO_ENCODER"));
             EncoderPluginSettings = EncoderSettings.FromEnvironment(SelectedEncoderPlugin?.SettingsPrefix);
@@ -204,11 +257,14 @@ namespace Xilium.CefGlue.Headless.Service
                 Console.ResetColor();
             }
 
+            var cefLogPath = PrepareCefLogPath(isTenantScoped);
+            Console.WriteLine($"[Program] CEF log: {cefLogPath}");
+
             var settings = new CefSettings
             {
                 RootCachePath = cachePath,
                 WindowlessRenderingEnabled = true,
-                LogFile = Path.Combine(AppContext.BaseDirectory, "cef.log"),
+                LogFile = cefLogPath,
                 CommandLineArgsDisabled = false,
             };
 

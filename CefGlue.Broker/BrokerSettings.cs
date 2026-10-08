@@ -38,8 +38,6 @@ namespace Xilium.CefGlue.Broker
 
     internal static class BrokerSettings
     {
-        private static readonly string Path =
-            System.IO.Path.Combine(AppContext.BaseDirectory, "broker-settings.json");
 
         private static readonly object Gate = new();
 
@@ -47,21 +45,7 @@ namespace Xilium.CefGlue.Broker
         {
             lock (Gate)
             {
-                try
-                {
-                    if (!File.Exists(Path))
-                    {
-                        return new BrokerSettingsData();
-                    }
-
-                    return JsonSerializer.Deserialize<BrokerSettingsData>(File.ReadAllText(Path))
-                           ?? new BrokerSettingsData();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[BrokerSettings] Could not read {Path} ({ex.Message}) - using defaults.");
-                    return new BrokerSettingsData();
-                }
+                return Storage.BrokerStore.LoadSettings();
             }
         }
 
@@ -69,14 +53,7 @@ namespace Xilium.CefGlue.Broker
         {
             lock (Gate)
             {
-                try
-                {
-                    File.WriteAllText(Path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[BrokerSettings] Could not write {Path}: {ex.Message}");
-                }
+                Storage.BrokerStore.SaveSettings(data);
             }
         }
 

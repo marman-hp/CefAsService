@@ -10,7 +10,17 @@
     <AssemblyTitle>Xilium.CefGlue.Headless.Service</AssemblyTitle>
     <Authors>Marman-HP</Authors>
     <Copyright>Copyright © 2026 Marman-HP. Portions Copyright © XiliumHQ 2021, OutSystems 2021.</Copyright>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\CefGlue.Broker\Storage\Sqlite3Native.cs" Link="Storage\Sqlite3Native.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\SqliteDb.cs" Link="Storage\SqliteDb.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\BrokerDb.cs" Link="Storage\BrokerDb.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\CefGlue.Broker\native\win-x64\sqlite3.dll" Link="sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <Import Project="$(ProjectDir)..\CefGlue.CopyLocal.props" />
 

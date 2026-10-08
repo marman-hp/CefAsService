@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Xilium.CefGlue.Headless.Service;
 
 namespace Xilium.CefGlue.Broker
 {
@@ -100,8 +101,58 @@ namespace Xilium.CefGlue.Broker
             }
         }
 
+        internal static void LogError(string message) =>
+            ErrorLog.Append(ErrorLog.BrokerFileName, Path.GetDirectoryName(ProcessSpawner.WorkerExePath ?? "") is { Length: > 0 } workerDir ? workerDir : AppContext.BaseDirectory, message);
+
+        internal static async Task ReportWorkerExitAsync(string tenantId, Process process)
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await process.WaitForExitAsync(timeout.Token);
+
+                var code = process.ExitCode;
+                if (code == 0 || code == -1)
+                {
+                    return;
+                }
+
+                LogError($"Worker crashed - tenant '{tenantId}', pid {process.Id}, exit code 0x{code:X8} ({DescribeExitCode(code)}).");
+            }
+            catch
+            {
+            }
+        }
+
+        private static string DescribeExitCode(int code) => unchecked((uint)code) switch
+        {
+            0xC0000005 => "access violation - native crash",
+            0xC00000FD => "stack overflow",
+            0xC0000374 => "heap corruption - native crash",
+            0xC0000409 => "fail-fast / stack buffer overrun",
+            0xE0434352 => "unhandled .NET exception - see service-error.log",
+            0x80000003 => "breakpoint",
+            _ => "unknown",
+        };
+
         private static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                LogError($"Unhandled exception - broker pid {Environment.ProcessId}{Environment.NewLine}{e.ExceptionObject}");
+
+            foreach (var k in new[]
+{
+        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES",
+        "ASPNETCORE_AUTO_RELOAD_WS_ENDPOINT",
+        "ASPNETCORE_AUTO_RELOAD_WS_KEY",
+        "ASPNETCORE_AUTO_RELOAD_VDIR",
+        "DOTNET_STARTUP_HOOKS",
+        "DOTNET_MODIFIABLE_ASSEMBLIES",
+        "DOTNET_WATCH",
+        "DOTNET_WATCH_ITERATION",
+    })
+                Environment.SetEnvironmentVariable(k, null);
+
             ConsoleQuickEdit.Disable();
 
             ParseCommandLineArgs(args, out var cliPortMode, out var disableSelfSignedHttps);
@@ -244,7 +295,7 @@ namespace Xilium.CefGlue.Broker
                     Console.WriteLine($"[Broker] https://localhost:{localhostHttpsPort} is warning-free (trusted cert); https://localhost:{httpsPort} still shows the usual self-signed warning.");
                 }
             });
-
+            builder.WebHost.UseSetting(WebHostDefaults.PreventHostingStartupKey, "true");
             var app = builder.Build();
 
             if (httpsCert != null || trustedLocalhostCert != null)
@@ -332,6 +383,9 @@ namespace Xilium.CefGlue.Broker
             }
 
             _ = ControlPlaneServer.RunAsync(adminPort);
+
+            Storage.BrokerStore.WriteRuntime(ControlPlaneServer.RuntimeSnapshot());
+            app.Lifetime.ApplicationStopping.Register(Storage.BrokerStore.MarkStopped);
 
             app.Run();
         }

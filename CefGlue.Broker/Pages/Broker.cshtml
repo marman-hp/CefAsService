@@ -21,6 +21,14 @@
         overflow: hidden;
     }
 
+    #browserList::-webkit-scrollbar { width: 8px; }
+    #browserList::-webkit-scrollbar-track { background: transparent; }
+    #browserList::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+    #browserList::-webkit-scrollbar-thumb:hover { background-color: #525252; }
+    @@supports not selector(::-webkit-scrollbar) {
+        #browserList { scrollbar-width: thin; scrollbar-color: #404040 transparent; }
+    }
+
     #frame.pixelated-backstop, #rtcCanvas.pixelated-backstop {
         image-rendering: pixelated;
         filter: none;
@@ -76,11 +84,16 @@
 
     <partial name="Shared/_SessionRestore" />
     <partial name="Shared/_IsolationEpoch" />
-    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20260930b"></script>
+    @if (useWebRtc)
+    {
+        <script>window.CEFGLUE_ICE_SERVERS = @Html.Raw(Xilium.CefGlue.Broker.BrowserIceServers.Json());</script>
+    }
+    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20261007h"></script>
     <script>
         (function () {
             var KEYID_STORAGE_KEY = 'cefglue_keyid';
             var KEYID_MAX_AGE_SECONDS = 900;
+            var PAGE_TRANSPORT = '@(useWebRtc ? "webrtc" : "websocket")';
             var firstResolve = true;
             var currentKeyId = null;
 
@@ -181,6 +194,18 @@
                         return window.CefGlueIsolationEpoch.check(result.isolation).then(function () { return result; });
                     })
                     .then(function (result) {
+                        if (result.transport && result.transport !== PAGE_TRANSPORT) {
+                            var lastReload = 0;
+                            try { lastReload = Number(sessionStorage.getItem('cefglue_transport_reload') || 0); } catch (e) { }
+                            if (Date.now() - lastReload > 15000) {
+                                try { sessionStorage.setItem('cefglue_transport_reload', String(Date.now())); } catch (e) { }
+                                console.warn('[broker] Broker transport is now ' + result.transport + ' (page loaded ' + PAGE_TRANSPORT + ') - reloading.');
+                                window.location.reload();
+                                return new Promise(function () { });
+                            }
+                            console.error('[broker] Broker transport is ' + result.transport + ' but this page still loads ' + PAGE_TRANSPORT + ' after a reload.');
+                        }
+
                         window.CefGlueSessionRestore.startSlidingRefresh(KEYID_STORAGE_KEY, function () { return KEYID_MAX_AGE_SECONDS; }, function () { return currentKeyId; });
                         var parts = result.address.split(':');
 

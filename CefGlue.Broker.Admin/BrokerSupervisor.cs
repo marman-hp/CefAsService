@@ -24,7 +24,8 @@ namespace Xilium.CefGlue.Broker.Admin
 
         public bool IsRunning => _process is { HasExited: false };
 
-        public bool LaunchesWithWebRtc => _childArgs.Any(a => string.Equals(a, "--use-webrtc", StringComparison.OrdinalIgnoreCase));
+        public bool LaunchesWithWebRtc => _childArgs.Any(a => string.Equals(a, "--use-webrtc", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(Environment.GetEnvironmentVariable("CEFGLUE_USE_WEBRTC"), "1", StringComparison.OrdinalIgnoreCase);
 
         public int Pid => IsRunning ? _process.Id : 0;
 
@@ -201,6 +202,11 @@ namespace Xilium.CefGlue.Broker.Admin
                 catch
                 {
                     LastExitCode = -1;
+                }
+
+                if (LastExitCode != 0 && LastExitCode != -1)
+                {
+                    Program.LogError($"Broker crashed - pid {_process.Id}, exit code 0x{LastExitCode:X8}{(unchecked((uint)LastExitCode) == 0xE0434352 ? " (unhandled .NET exception - see broker-error.log)" : "")}.");
                 }
             }
 

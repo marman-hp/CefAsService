@@ -641,3 +641,58 @@
 .worker-cache-row {
     flex-wrap: wrap;
 }
+
+.admin-page .reload-guard {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(10, 12, 16, 0.72);
+    backdrop-filter: blur(2px);
+}
+
+.admin-page .reload-card {
+    width: 100%;
+    max-width: 360px;
+    box-sizing: border-box;
+    padding: 28px 24px;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.admin-page .reload-spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 14px;
+    border: 3px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: reload-spin 0.9s linear infinite;
+}
+
+@keyframes reload-spin {
+    to { transform: rotate(360deg); }
+}
+
+.admin-page .reload-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.admin-page .reload-step {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--accent);
+}
+
+.admin-page .reload-note {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--ink-dim);
+}

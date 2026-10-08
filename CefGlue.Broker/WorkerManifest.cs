@@ -40,43 +40,13 @@ namespace Xilium.CefGlue.Broker
     {
         private const string WorkerProcessName = "Xilium.CefGlue.Headless.Service";
 
-        private static readonly string Path =
-            System.IO.Path.Combine(AppContext.BaseDirectory, "broker-workers.json");
-
         private static readonly object Gate = new();
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Ip, string Os)> LastClient = new();
 
-        private static List<WorkerManifestEntry> Load()
-        {
-            try
-            {
-                if (!File.Exists(Path))
-                {
-                    return new List<WorkerManifestEntry>();
-                }
+        private static List<WorkerManifestEntry> _entries;
 
-                return JsonSerializer.Deserialize<List<WorkerManifestEntry>>(File.ReadAllText(Path))
-                       ?? new List<WorkerManifestEntry>();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WorkerManifest] Could not read {Path} ({ex.Message}) - starting from empty.");
-                return new List<WorkerManifestEntry>();
-            }
-        }
-
-        private static void Save(List<WorkerManifestEntry> entries)
-        {
-            try
-            {
-                File.WriteAllText(Path, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WorkerManifest] Could not write {Path}: {ex.Message}");
-            }
-        }
+        private static List<WorkerManifestEntry> Load() => _entries ??= Storage.BrokerStore.LoadManifest();
 
         public static void Add(string tenantId, string pageId, string address, int pid)
         {
@@ -86,7 +56,7 @@ namespace Xilium.CefGlue.Broker
                 var previous = entries.FirstOrDefault(e => e.TenantId == tenantId);
                 var client = LastClient.TryGetValue(tenantId, out var c) ? c : (previous?.ClientIp, previous?.ClientOs);
                 entries.RemoveAll(e => e.TenantId == tenantId);
-                entries.Add(new WorkerManifestEntry
+                var added = new WorkerManifestEntry
                 {
                     TenantId = tenantId,
                     PageId = pageId,
@@ -96,8 +66,9 @@ namespace Xilium.CefGlue.Broker
                     CreatedUtc = previous?.CreatedUtc ?? DateTime.UtcNow,
                     ClientIp = client.Item1,
                     ClientOs = client.Item2,
-                });
-                Save(entries);
+                };
+                entries.Add(added);
+                Storage.BrokerStore.SaveTenant(entries, added);
             }
         }
 
@@ -108,7 +79,7 @@ namespace Xilium.CefGlue.Broker
                 var entries = Load();
                 if (entries.RemoveAll(e => e.TenantId == tenantId) > 0)
                 {
-                    Save(entries);
+                    Storage.BrokerStore.RemoveTenants(entries, new[] { tenantId });
                 }
             }
         }
@@ -128,7 +99,7 @@ namespace Xilium.CefGlue.Broker
                 entry.Address = null;
                 entry.SpawnedUtc = default;
                 entry.GoneAtUtc = DateTime.UtcNow;
-                Save(entries);
+                Storage.BrokerStore.SaveTenant(entries, entry);
             }
         }
 
@@ -165,7 +136,7 @@ namespace Xilium.CefGlue.Broker
 
                 entry.ClientIp = ip;
                 entry.ClientOs = os;
-                Save(entries);
+                Storage.BrokerStore.SaveTenant(entries, entry);
             }
         }
 
@@ -215,7 +186,7 @@ namespace Xilium.CefGlue.Broker
 
                 entry.Tabs = tabs;
                 entry.SelectedTabId = selectedTabId;
-                Save(entries);
+                Storage.BrokerStore.SaveTenant(entries, entry);
             }
         }
 
@@ -242,7 +213,7 @@ namespace Xilium.CefGlue.Broker
 
                 if (changed)
                 {
-                    Save(entries);
+                    Storage.BrokerStore.SaveAllTenants(entries);
                 }
             }
         }
@@ -301,11 +272,15 @@ namespace Xilium.CefGlue.Broker
                             Tabs = entry.Tabs,
                             SelectedTabId = entry.SelectedTabId,
                             GoneAtUtc = entry.GoneAtUtc ?? DateTime.UtcNow,
+                            CreatedUtc = entry.CreatedUtc,
+                            ClientIp = entry.ClientIp,
+                            ClientOs = entry.ClientOs,
                         });
                     }
                 }
 
-                Save(kept);
+                _entries = kept;
+                Storage.BrokerStore.SaveAllTenants(kept);
 
                 if (noCleanup)
                 {
@@ -354,7 +329,8 @@ namespace Xilium.CefGlue.Broker
 
                 if (removedTenantIds.Count > 0)
                 {
-                    Save(kept);
+                    _entries = kept;
+                    Storage.BrokerStore.RemoveTenants(kept, removedTenantIds);
                 }
 
                 return removedTenantIds;

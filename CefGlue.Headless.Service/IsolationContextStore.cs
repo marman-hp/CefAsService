@@ -19,6 +19,8 @@ namespace Xilium.CefGlue.Headless.Service
 
         public const string ExampleDirName = DirPrefix + "xxxxxxxxxxxx";
 
+        private int _nextIndex = 1;
+
         public static string NewContextId()
         {
             var ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -202,14 +204,7 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
-            var used = _index.Values.ToHashSet();
-            var next = 1;
-            while (used.Contains(next))
-            {
-                next++;
-            }
-
-            _index[contextId] = next;
+            _index[contextId] = _nextIndex++;
         }
 
         private sealed class LedgerEntry
@@ -249,6 +244,11 @@ namespace Xilium.CefGlue.Headless.Service
                             _index[property.Name] = entry.Index;
                         }
                     }
+
+                    if (doc.RootElement.TryGetProperty("nextIndex", out var savedNext) && savedNext.TryGetInt32(out var n))
+                    {
+                        _nextIndex = Math.Max(_nextIndex, n);
+                    }
                 }
                 else
                 {
@@ -261,6 +261,8 @@ namespace Xilium.CefGlue.Headless.Service
                     }
                 }
 
+                _nextIndex = Math.Max(_nextIndex, _index.Values.DefaultIfEmpty(0).Max() + 1);
+
                 foreach (var contextId in _lastUsedUtc.OrderBy(kvp => kvp.Value).Select(kvp => kvp.Key))
                 {
                     EnsureIndex(contextId);
@@ -272,6 +274,7 @@ namespace Xilium.CefGlue.Headless.Service
                 _lastUsedUtc.Clear();
                 _index.Clear();
             }
+
         }
 
         private void SaveLedger()
@@ -281,9 +284,14 @@ namespace Xilium.CefGlue.Headless.Service
                 var contexts = _lastUsedUtc.ToDictionary(
                     kvp => kvp.Key,
                     kvp => new LedgerEntry { LastUsedUtc = kvp.Value, Index = _index.TryGetValue(kvp.Key, out var i) ? i : 0 });
-                File.WriteAllText(_ledgerPath, JsonSerializer.Serialize(
-                    new { contexts },
-                    new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+
+                var json = JsonSerializer.Serialize(
+                    new { nextIndex = _nextIndex, contexts },
+                    new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+                var tmp = _ledgerPath + ".tmp";
+                File.WriteAllText(tmp, json);
+                File.Move(tmp, _ledgerPath, overwrite: true);
             }
             catch (Exception ex)
             {

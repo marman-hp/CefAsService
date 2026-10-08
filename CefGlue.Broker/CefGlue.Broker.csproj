@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>$(DotnetVersion)</TargetFramework>
     <AssemblyName>Xilium.CefGlue.Broker</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Xilium.CefGlue.Broker</RootNamespace>
     <Nullable>disable</Nullable>
     <Product>Xilium.CefGlue.Broker</Product>
@@ -14,6 +15,11 @@
 
   <ItemGroup>
     <Compile Include="..\CefGlue.Headless.Service\TenantCachePaths.cs" Link="TenantCachePaths.cs" />
+    <Compile Include="..\CefGlue.Headless.Service\ErrorLog.cs" Link="ErrorLog.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="native\win-x64\sqlite3.dll" Link="sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

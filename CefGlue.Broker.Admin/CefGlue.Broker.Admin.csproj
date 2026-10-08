@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>$(DotnetVersion)</TargetFramework>
     <AssemblyName>Xilium.CefGlue.Broker.Admin</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Xilium.CefGlue.Broker.Admin</RootNamespace>
     <Nullable>disable</Nullable>
     <Product>Xilium.CefGlue.Broker.Admin</Product>
@@ -13,8 +14,8 @@
   </PropertyGroup>
 
   <Target Name="BuildSiblingProcesses" AfterTargets="Build" Condition="'$(BuildingSolutionFile)' != 'true'">
-    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\CefGlue.Broker\CefGlue.Broker.csproj&quot; -c $(Configuration)" />
-    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\CefGlue.Headless.Service\CefGlue.Headless.Service.csproj&quot; -c $(Configuration)" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\CefGlue.Broker\CefGlue.Broker.csproj&quot; -c $(Configuration) -p:Platform=$(Platform)" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\CefGlue.Headless.Service\CefGlue.Headless.Service.csproj&quot; -c $(Configuration) -p:Platform=$(Platform)" />
   </Target>
 
   <ItemGroup>
@@ -26,6 +27,18 @@
       <Link>wwwroot\$(AssemblyName).styles.css</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\CefGlue.Headless.Service\ErrorLog.cs" Link="ErrorLog.cs" />
+    <Compile Include="..\CefGlue.Headless.Service\TenantCachePaths.cs" Link="TenantCachePaths.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\Sqlite3Native.cs" Link="Storage\Sqlite3Native.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\SqliteDb.cs" Link="Storage\SqliteDb.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\BrokerDb.cs" Link="Storage\BrokerDb.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\CefGlue.Broker\native\win-x64\sqlite3.dll" Link="sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
