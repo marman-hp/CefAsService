@@ -275,7 +275,12 @@ namespace Xilium.CefGlue.Headless.Service
                 Console.WriteLine("GPU: forcing enabled via CEFGLUE_GPU_FORCING=1.");
             }
 
-            var flags = new List<KeyValuePair<string, string>> { KeyValuePair.Create("touch-events", "enabled") };
+            var flags = new List<KeyValuePair<string, string>>
+            {
+                KeyValuePair.Create("touch-events", "enabled"),
+                KeyValuePair.Create("blink-settings", "pictureInPictureEnabled=false"),
+                KeyValuePair.Create("disable-blink-features", "DocumentPictureInPictureAPI"),
+            };
             if (gpuFlags != null)
             {
                 flags.AddRange(gpuFlags);
