@@ -1,7 +1,7 @@
 # CEF As Service
 
 **Chromium as a service.** Run real Chromium (CEF) browsers on a Windows server and stream them to any
-web browser: desktop, phone or tablet. A **Broker** gives each client its own headless browser worker
+web browser. A **Broker** gives each client its own headless browser worker
 and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Admin** web app manages it all.
 
 ```
@@ -125,7 +125,7 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 | `CefGlue.Headless.Service` | Worker process, one per client session |
 | `CefGlue.Broker` | Assigns workers to clients, relays traffic, serves the viewer page |
 | `CefGlue.Broker.Admin` | Admin web UI |
-| `CefGlue.Common.Encoder` | Encoder plugin contract + built-in JPG/PNG/WebP |
+| `CefGlue.Common.Encoder` | Encoder plugin contract + built-in JPG |
 | `lib/` | Prebuilt components (binary only, see `LICENSE-BINARY.txt`) |
 
 ## Video encoders & OpenH264
