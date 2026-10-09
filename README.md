@@ -1,4 +1,4 @@
-# Cef As Service
+# CEF As Service
 
 **Chromium as a service.** Run real Chromium (CEF) browsers on a Windows server and stream them to any
 web browser: desktop, phone or tablet. A **Broker** gives each client its own headless browser worker
@@ -17,15 +17,17 @@ and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Ad
 
 ## Features
 
-- **One real Chromium per client.** Each session runs in its own worker process and uses Chromium's own user agent, with no spoofing (only while you emulate a mobile device does it take that device's user agent, as DevTools device mode does).
-- **Two transports:** WebSocket (JPG/PNG/WebP frames or encoded video) and WebRTC (video + Opus audio, TURN-ready).
+- **One real Chromium per client.** Each session runs in its own worker process and uses Chromium's own user agent.
+- **Two transports:** WebSocket (JPG frames or encoded video) and WebRTC (video + Opus audio, TURN-ready).
 - **Multi-account isolation:** by default, each tenant gets one persistent browser context. With `--isolation-mode-session`, every tab gets its own context, so you can run several logins to the same site side by side.
 - **Sessions that survive:** configurable session timeout and manifest TTL, last-URL restore, and logins kept across Broker restarts.
-- **Full interaction:** mouse, keyboard, touch and on-screen keyboard (Android), popups, HTML5 drag & drop, and mobile device emulation. Phones get a mobile viewer page automatically.
-- **Pluggable video encoders:** loaded from `plugins/encoders/`. The OpenH264 plugin is included (the codec itself is a one-click download from Cisco, see below); the built-in formats are JPG, PNG and WebP.
+- **Full interaction:** mouse, keyboard, touch and on-screen keyboard (Android), popups. Phones get a mobile viewer page automatically.
+- **Pluggable video encoders:** loaded from `plugins/encoders/`. The OpenH264 plugin is included (the codec itself is a one-click download from Cisco, see below); the built-in formats are JPG.
 - **Admin web UI:** password-protected and loopback-only. Start/stop/restart the Broker, view live workers (OS, client IP, created), and manage encoder settings, session timeout, default URL and executables.
 
 ## Quick start (release build)
+
+![CEF As Service](cover.png)
 
 1. Download the latest zip from **Releases** (CEF included) and extract it to a folder you can write to, e.g. `C:\CefAsService` (not `C:\Program Files`, see [Running on Windows](#running-on-windows)).
 2. Run `Admin\Xilium.CefGlue.Broker.Admin.exe`.
