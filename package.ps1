@@ -31,6 +31,15 @@ if (-not (Test-Path (Join-Path $root "cef\runtimes\win-x64\native\libcef.dll")))
     throw "CEF runtime missing - run .\get-cef.ps1 first."
 }
 
+# The cef\ folder survives exports, so after a CEF upgrade it can still hold the old runtime - the
+# bindings then fail at startup ("unsupported CEF API version"). It must match CefBuildVersion.
+$props = [xml](Get-Content (Join-Path $root "Directory.Build.props") -Raw)
+$cefVersion = ($props.Project.PropertyGroup | Where-Object { $_.CefBuildVersion } | Select-Object -First 1).CefBuildVersion
+$libcefVersion = (Get-Item (Join-Path $root "cef\runtimes\win-x64\native\libcef.dll")).VersionInfo.FileVersion
+if ($libcefVersion -ne $cefVersion) {
+    throw "cef\ holds CEF $libcefVersion, this build needs $cefVersion - delete cef\runtimes and run .\get-cef.ps1 again."
+}
+
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 if (Test-Path $zip) { Remove-Item -Force $zip }
 New-Item -ItemType Directory -Force $stage | Out-Null
@@ -103,7 +112,7 @@ $worker = Join-Path $stage "Worker"
 # (framework-dependent) runtimeconfig.json in the worker root too - without its dll. CEF only runs
 # the self-contained copy in CefGlueBrowserProcess\; the stray one just shows "install .NET" if run.
 Get-ChildItem $worker -File -Filter "Xilium.CefGlue.BrowserProcess.*" | Remove-Item -Force
-foreach ($required in "runtimes\win-x64\native\libcef.dll", "CefGlueBrowserProcess\Xilium.CefGlue.BrowserProcess.exe", "plugins\encoders\openh264\plugin.json", "datachannel.dll", "opus.dll", "sqlite3.dll") {
+foreach ($required in "runtimes\win-x64\native\libcef.dll", "CefGlueBrowserProcess\Xilium.CefGlue.BrowserProcess.exe", "plugins\encoders\openh264\plugin.json", "datachannel.dll", "opus.dll", "sqlite3.dll", "cefrec.dll", "libmp3lame.dll") {
     if (-not (Test-Path (Join-Path $worker $required))) { throw "Worker is missing $required." }
 }
 
@@ -138,7 +147,7 @@ if (Test-Path $cefLicense) {
 } else {
     Write-Warning "cef\LICENSE-cef.txt not found (run get-cef.ps1 -FromDirectory ... -LicenseFile <CEF LICENSE.txt>) - CEF's BSD license is missing from THIRD-PARTY-NOTICES.txt."
 }
-Get-ChildItem $stage -Recurse -File -Include "LICENSE-*.txt", "COPYING-*.txt" -Exclude "LICENSE-BINARY.txt" | Sort-Object Name -Unique | ForEach-Object {
+Get-ChildItem $stage -Recurse -File -Include "LICENSE-*.txt", "COPYING-*.txt", "*.LICENSE.txt" -Exclude "LICENSE-BINARY.txt" | Sort-Object Name -Unique | ForEach-Object {
     [void]$notices.AppendLine("=" * 78)
     [void]$notices.AppendLine($_.BaseName)
     [void]$notices.AppendLine("")
@@ -289,6 +298,16 @@ a paid service that streams H.264 may need your own H.264 patent license
 (Via LA) - that is the operator's responsibility.
 
 
+SESSION RECORDING
+-----------------
+Off by default: Admin > Recording > Enable, then Restart. In the viewer's
+menu: "Start recording" (MP4 video, needs the OpenH264 stream) or "Record
+audio only" (MP3). Press Stop to download the file. The recording feature
+only works on non-sensitive sites; otherwise, the recording is blocked.
+Video recordings are limited in Admin (default 2 at once, 30 minutes).
+Play the MP4 in a browser, VLC, MPC or Windows Media Player Legacy.
+
+
 HARDWARE
 --------
 * Server CPU: OpenH264 encodes in software, one encoder per streaming
@@ -396,6 +415,9 @@ FILES
                                 admin password (hashed) - one SQLite file
   C:\ProgramData\CefGlue        browser profiles (logins) and caches
                                 (hidden folder)
+  C:\ProgramData\CefGlue\recordings
+                                session recordings until they are
+                                downloaded
 
 Delete that folder for a completely fresh start.
 

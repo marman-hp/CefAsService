@@ -20,6 +20,10 @@ namespace Xilium.CefGlue.Headless.Service
 
         public bool IsMobileEmulationActive { get; set; }
 
+        public string MobileEmulationKey { get; set; }
+
+        public string MobileUaKey { get; set; }
+
         public string ResponsiveUserAgent { get; set; }
 
         public bool HasEverUsedMobileEmulation { get; set; }
@@ -29,6 +33,24 @@ namespace Xilium.CefGlue.Headless.Service
         public bool CanGoBack { get; set; }
         public bool CanGoForward { get; set; }
         public bool IsLoading { get; set; }
+
+        public SessionRecorder Recorder { get; set; }
+
+        public bool IsRecording => Recorder != null;
+
+        public IVideoFrameEncoder RecordingEncoder;
+        public int RecordingEncoderWidth;
+        public int RecordingEncoderHeight;
+        public HeadlessFrame PendingRecordingFrame;
+        public int RecordingEncodeRunning;
+
+        public int AudioSampleRate { get; set; }
+
+        public int AudioChannels { get; set; }
+
+        public string ViewMode { get; set; } = "responsive";
+
+        public string ViewModeBeforeRecording { get; set; }
 
         public bool IsPopup { get; init; }
 

@@ -19,6 +19,8 @@ namespace Xilium.CefGlue.Common.Platform
 
         event Action<string> CompositionCommitted;
 
+        event Action<string, int, ImeCompositionClause[]> CompositionUpdatedWithClauses { add { } remove { } }
+
         event Action<IOffScreenTargetHost, CefMouseEvent, CefMouseButtonType, int> MouseButtonPressed;
         event Action<CefMouseEvent, CefMouseButtonType> MouseButtonReleased;
         event Action<CefMouseEvent> MouseLeave;
@@ -35,6 +37,10 @@ namespace Xilium.CefGlue.Common.Platform
         event Action<bool> VisibilityChanged;
 
         event Action Reattached { add { } remove { } }
+
+        void SetTextInputActive(bool active) { }
+
+        void UpdateImeCompositionBounds(CefRange selectedRange, CefRectangle[] characterBounds) { }
 
         void Focus();
         CefPoint PointToScreen(CefPoint point, float deviceScaleFactor);

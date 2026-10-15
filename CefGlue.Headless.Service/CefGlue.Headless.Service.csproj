@@ -10,6 +10,7 @@
     <AssemblyTitle>Xilium.CefGlue.Headless.Service</AssemblyTitle>
     <Authors>Marman-HP</Authors>
     <Copyright>Copyright © 2026 Marman-HP. Portions Copyright © XiliumHQ 2021, OutSystems 2021.</Copyright>
+    <RepositoryUrl>https://github.com/marman-hp/CefAsService</RepositoryUrl>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -47,5 +48,11 @@
   <Import Project="..\lib\BinaryComponents.props" />
 
   <Import Project="$(ProjectDir)..\CefGlue.Common\build\CefGlue.Common.targets" />
+
+  <ItemGroup Condition="Exists('..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll')">
+    <None Include="..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll" Link="cefrec.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.dll" Link="libmp3lame.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.dll')" />
+    <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt" Link="libmp3lame.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt')" />
+  </ItemGroup>
 
 </Project>

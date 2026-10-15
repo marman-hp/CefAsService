@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
             "VideoEncoder", "ConnectionMode", "AudioBitrateKbps", "DisableGpu", "TextureEnable",
             "DiskCacheSizeBytes", "MediaCacheSizeBytes", "DefaultUrl", "NewPageUseLastUrl",
             "WebRtcPacingBps", "WebRtcIceServers", "SessionTimeoutSeconds", "ManifestTtlSeconds",
+            "RecordingEnabled", "RecordingMaxConcurrent", "RecordingMaxMinutes",
         };
 
         public const string EncoderSettingsKey = "EncoderSettings";
@@ -161,7 +162,18 @@ CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
 
             var timeout = Seconds("SessionTimeoutSeconds", 300);
             var ttl = Seconds("ManifestTtlSeconds", 900);
-            return ttl < timeout ? $"Manifest TTL ({ttl}s) can't be shorter than Session Timeout ({timeout}s)." : null;
+            if (ttl < timeout)
+            {
+                return $"Manifest TTL ({ttl}s) can't be shorter than Session Timeout ({timeout}s).";
+            }
+
+            string Range(string key, int min, int max, string label)
+                => fields.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) && (!int.TryParse(v, out var n) || n < min || n > max)
+                    ? $"{label} must be a whole number from {min} to {max}."
+                    : null;
+
+            return Range("RecordingMaxConcurrent", 1, 16, "Max recordings")
+                ?? Range("RecordingMaxMinutes", 1, 24 * 60, "Max recording duration");
         }
 
         public static void Save(SqliteDb db, IReadOnlyDictionary<string, string> fields, IReadOnlyDictionary<string, string> encoderSettings)

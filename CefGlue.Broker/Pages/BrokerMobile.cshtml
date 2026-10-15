@@ -9,7 +9,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes, interactive-widget=resizes-visual">
-<title>CefGlue Service</title>
+<title>CAS - CEF as Service</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
     html, body {
@@ -19,12 +19,13 @@
         overflow: hidden;
     }
 
-    #browserList::-webkit-scrollbar { width: 8px; }
-    #browserList::-webkit-scrollbar-track { background: transparent; }
-    #browserList::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
-    #browserList::-webkit-scrollbar-thumb:hover { background-color: #525252; }
+    #browserList::-webkit-scrollbar, #canvasWrapper::-webkit-scrollbar { width: 8px; height: 8px; }
+    #browserList::-webkit-scrollbar-track, #canvasWrapper::-webkit-scrollbar-track { background: transparent; }
+    #browserList::-webkit-scrollbar-thumb, #canvasWrapper::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+    #browserList::-webkit-scrollbar-thumb:hover, #canvasWrapper::-webkit-scrollbar-thumb:hover { background-color: #525252; }
+    #canvasWrapper::-webkit-scrollbar-corner { background: transparent; }
     @@supports not selector(::-webkit-scrollbar) {
-        #browserList { scrollbar-width: thin; scrollbar-color: #404040 transparent; }
+        #browserList, #canvasWrapper { scrollbar-width: thin; scrollbar-color: #404040 transparent; }
     }
 
     #frame.pixelated-backstop {
@@ -94,7 +95,7 @@
     {
         <script>window.CEFGLUE_ICE_SERVERS = @Html.Raw(Xilium.CefGlue.Broker.BrowserIceServers.Json());</script>
     }
-    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20261007h"></script>
+    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20261015a"></script>
     <script>
         (function () {
             var KEYID_STORAGE_KEY = 'cefglue_keyid';

@@ -129,8 +129,51 @@ namespace Xilium.CefGlue.Headless
                     _lastCleanHeight = height;
                 }
 
-                FrameReady?.Invoke(Compose(clean, width, height));
+                _cursorOverlay?.NoteRealFrame();
+                var composed = Compose(clean, width, height);
+                FrameReady?.Invoke(composed);
+                EmitRecordingFrame(composed);
             };
+        }
+
+        internal RecordingCursorOverlay CursorOverlay => _cursorOverlay ??= new RecordingCursorOverlay(RecompositeForRecording);
+
+        private RecordingCursorOverlay _cursorOverlay;
+
+        internal event Action<HeadlessFrame> RecordingFrameReady;
+
+        private void EmitRecordingFrame(HeadlessFrame composed)
+        {
+            var overlay = _cursorOverlay;
+            var handler = RecordingFrameReady;
+            if (overlay == null || handler == null || !overlay.Enabled)
+            {
+                return;
+            }
+
+            var copy = (byte[])composed.Buffer.Clone();
+            overlay.Draw(copy, composed.Width, composed.Height);
+            handler(new HeadlessFrame(copy, composed.Width, composed.Height, composed.DirtyRects));
+        }
+
+        private void RecompositeForRecording()
+        {
+            byte[] cleanBuffer;
+            int width, height;
+
+            lock (_cleanBufferLock)
+            {
+                if (_lastCleanBuffer == null)
+                {
+                    return;
+                }
+
+                cleanBuffer = _lastCleanBuffer;
+                width = _lastCleanWidth;
+                height = _lastCleanHeight;
+            }
+
+            EmitRecordingFrame(Compose(cleanBuffer, width, height));
         }
 
         private readonly object _cleanBufferLock = new object();
@@ -200,7 +243,9 @@ namespace Xilium.CefGlue.Headless
                 height = _lastCleanHeight;
             }
 
-            FrameReady?.Invoke(Compose(cleanBuffer, width, height));
+            var composed = Compose(cleanBuffer, width, height);
+            FrameReady?.Invoke(composed);
+            EmitRecordingFrame(composed);
         }
 
         private void CompositePopup(byte[] buffer, int width, int height)
@@ -600,6 +645,8 @@ namespace Xilium.CefGlue.Headless
 
         public override unsafe void Dispose()
         {
+            _cursorOverlay?.Dispose();
+
             lock (_disposeLock)
             {
                 if (_disposed)

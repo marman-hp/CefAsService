@@ -42,6 +42,10 @@ namespace Xilium.CefGlue.Headless.Server
         public event Action<string> MessageReceived;
 
         public event Action Connected;
+
+        public string ViewerIp { get; private set; }
+
+        public Func<string, RecordingFile> ResolveRecording { get; set; }
         public event Action Disconnected;
 
         public int HttpsPort { get; }
@@ -68,8 +72,63 @@ namespace Xilium.CefGlue.Headless.Server
             _app = builder.Build();
             _app.UseWebSockets();
             _app.Map(path, HandleConnection);
+            _app.MapGet("/recordings/{id}", HandleRecordingDownload);
 
             _ = _app.RunAsync();
+        }
+
+        private async Task HandleRecordingDownload(HttpContext context, string id)
+        {
+            var file = ResolveRecording?.Invoke(id);
+            if (file == null || !File.Exists(file.Path))
+            {
+                context.Response.StatusCode = 404;
+                return;
+            }
+
+            var completed = false;
+            try
+            {
+                await using var stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, useAsync: true);
+                context.Response.ContentType = file.ContentType;
+                context.Response.ContentLength = stream.Length;
+                context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"{file.FileName}\"";
+                context.Response.Headers["Cache-Control"] = "no-store";
+
+                var buffer = new byte[1 << 16];
+                var started = System.Diagnostics.Stopwatch.StartNew();
+                long sent = 0;
+                int read;
+                while ((read = await stream.ReadAsync(buffer, context.RequestAborted)) > 0)
+                {
+                    await context.Response.Body.WriteAsync(buffer.AsMemory(0, read), context.RequestAborted);
+                    sent += read;
+                    if (file.BytesPerSecond > 0)
+                    {
+                        var dueMs = sent * 1000 / file.BytesPerSecond;
+                        var aheadMs = dueMs - started.ElapsedMilliseconds;
+                        if (aheadMs > 5)
+                        {
+                            await Task.Delay(TimeSpan.FromMilliseconds(aheadMs), context.RequestAborted);
+                        }
+                    }
+                }
+
+                await context.Response.Body.FlushAsync(context.RequestAborted);
+                completed = sent == stream.Length;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (IOException ex)
+            {
+                Console.WriteLine($"[FrameSocketServer] Recording download {id} failed: {ex.Message}");
+            }
+
+            if (completed)
+            {
+                file.Delivered?.Invoke();
+            }
         }
 
         private async Task HandleConnection(HttpContext context)
@@ -96,6 +155,20 @@ namespace Xilium.CefGlue.Headless.Server
 
             var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             Console.WriteLine($"[FrameSocketServer] Client connected from {remoteIp}");
+
+            var peer = context.Connection.RemoteIpAddress;
+            if (peer != null && peer.IsIPv4MappedToIPv6)
+            {
+                peer = peer.MapToIPv4();
+            }
+            var viewerIp = peer?.ToString();
+            if (peer != null && System.Net.IPAddress.IsLoopback(peer)
+                && context.Request.Headers.TryGetValue("X-CefGlue-Viewer-Ip", out var forwardedViewerIp)
+                && !string.IsNullOrWhiteSpace(forwardedViewerIp.ToString()))
+            {
+                viewerIp = forwardedViewerIp.ToString().Trim();
+            }
+            ViewerIp = viewerIp;
             BroadcastText(System.Text.Json.JsonSerializer.Serialize(new { type = "clientInfo", remoteIp }));
 
             Connected?.Invoke();

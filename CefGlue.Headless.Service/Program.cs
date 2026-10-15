@@ -75,6 +75,9 @@ namespace Xilium.CefGlue.Headless.Service
                 Apply("CEFGLUE_MEDIA_CACHE_SIZE_BYTES", Saved("MediaCacheSizeBytes"));
                 Apply("CEFGLUE_WEBRTC_VIDEO_PACING_BPS", Saved("WebRtcPacingBps"));
                 Apply("CEFGLUE_WEBRTC_ICE_SERVERS", Saved("WebRtcIceServers"));
+                Apply("CEFGLUE_RECORDING_ENABLED", Saved("RecordingEnabled"));
+                Apply("CEFGLUE_RECORDING_MAX_CONCURRENT", Saved("RecordingMaxConcurrent"));
+                Apply("CEFGLUE_RECORDING_MAX_MINUTES", Saved("RecordingMaxMinutes"));
 
                 foreach (var (envVarName, value) in Xilium.CefGlue.Broker.Storage.BrokerDb.AsStringMap(saved.GetValueOrDefault("EncoderSettings")))
                 {
@@ -309,7 +312,8 @@ namespace Xilium.CefGlue.Headless.Service
             var h264ProfileLevelId = webRtcVideoCodec == WebRtcVideoCodec.H264 ? SelectedEncoderPlugin?.H264ProfileLevelId(EncoderPluginSettings) : null;
             IFrameTransport transport = useWebRtc ? new WebRtcTransport(frameSocketServer, webRtcVideoCodec, h264ProfileLevelId) : frameSocketServer;
 
-            var sessions = new SessionManager(transport);
+            var sessions = new SessionManager(transport, () => frameSocketServer.ViewerIp);
+            frameSocketServer.ResolveRecording = sessions.ResolveRecording;
             transport.MessageReceived += sessions.HandleMessage;
 
             transport.Connected += sessions.OnFrameClientConnected;

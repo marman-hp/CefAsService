@@ -35,8 +35,10 @@ namespace Xilium.CefGlue.Common.Coordinators
             Context.WithErrorHandling(nameof(HandleMouseButtonDown), () =>
             {
                 focusControl();
-                if (Context.GetBrowserHost() != null)
+                var browserHost = Context.GetBrowserHost();
+                if (browserHost != null)
                 {
+                    browserHost.SetFocus(true);
                     SendMouseClickEvent(mouseEvent, mouseButton, false, clickCount);
                 }
             });

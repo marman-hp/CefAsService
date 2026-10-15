@@ -1,6 +1,8 @@
-﻿var $GlobalObjectName$;
-if (!$GlobalObjectName$) {
-    $GlobalObjectName$ = (function () {
+﻿(function ($BindNativeFunctionName$, $UnbindNativeFunctionName$) {
+    if (globalThis.$GlobalObjectName$) {
+        return;
+    }
+    globalThis.$GlobalObjectName$ = (function () {
         const idPropertyName = "$JsonIdAttribute$";
         const refPropertyName = "$JsonRefAttribute$";
         const valuesPropertyName = "$JsonValuesAttribute$";
@@ -153,14 +155,12 @@ if (!$GlobalObjectName$) {
                 return new Proxy(targetObj, handler);
             },
             checkObjectBound: function (objName) {
-                native function $BindNativeFunctionName$();
                 if (window.hasOwnProperty(objName)) {
                     return Promise.resolve(true);
                 }
                 return $BindNativeFunctionName$(objName);
             },
             deleteObjectBound: function (objName) {
-                native function $UnbindNativeFunctionName$();
                 $UnbindNativeFunctionName$(objName);
             },
             $EvaluateScriptFunctionName$: function (fn) {
@@ -168,4 +168,4 @@ if (!$GlobalObjectName$) {
             }
         };
     })();
-}
+})

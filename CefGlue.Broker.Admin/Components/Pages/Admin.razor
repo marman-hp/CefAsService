@@ -449,6 +449,63 @@
         </div>
         </div>
 
+        <div class="settings-tab-page" hidden="@(_settingsTab != 6)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Recording</div>
+                        <div class="encoder-subtitle">
+                            <span>Viewer session recording (MP4 video, MP3 audio) - applies to workers started after saving</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label class="checkbox-option">
+                        <input type="checkbox" checked="@_selectedRecordingEnabled"
+                               @onchange="@(e => _selectedRecordingEnabled = (bool)e.Value)" />
+                        Enable recording
+                    </label>
+                    <span>@(_selectedRecordingEnabled ? "Viewers get Record in the menu" : "Off - viewers see no recording")</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="recording-max-concurrent-input">Max recordings</label>
+                    <input id="recording-max-concurrent-input" type="number" min="1" max="16" step="1"
+                           disabled="@(!_selectedRecordingEnabled)"
+                           value="@_selectedRecordingMaxConcurrent"
+                           @oninput="@(e => _selectedRecordingMaxConcurrent = (string)e.Value)" />
+                    <span>video recordings at the same time, per worker (default 2)</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="recording-max-minutes-input">Max duration</label>
+                    <input id="recording-max-minutes-input" type="number" min="1" max="1440" step="1"
+                           disabled="@(!_selectedRecordingEnabled)"
+                           value="@_selectedRecordingMaxMinutes"
+                           @oninput="@(e => _selectedRecordingMaxMinutes = (string)e.Value)" />
+                    <span>minutes per video recording - it stops and downloads itself at the limit (default 30)</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label>Audio only (MP3)</label>
+                    <span>not limited - no duration cap, not counted in Max recordings</span>
+                </div>
+            </div>
+        </div>
+        </div>
+
         <div class="settings-tab-page" hidden="@(_settingsTab != 4)">
         <div class="encoder-settings">
             <div class="encoder-header">
@@ -816,6 +873,11 @@
     private string _pendingDiskCacheSizeBytes;
     private string _selectedMediaCacheSizeBytes;
 
+    private bool _selectedRecordingEnabled;
+    private bool _recordingEnabledSeeded;
+    private string _selectedRecordingMaxConcurrent;
+    private string _selectedRecordingMaxMinutes;
+
     private const string DefaultUrlFallback = "https://www.google.com";
     private string _selectedDefaultUrl;
     private string _activeDefaultUrl;
@@ -885,6 +947,7 @@
         !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0", _selectedTextureEnable ? "1" : "", _selectedDiskCacheSizeBytes, _selectedMediaCacheSizeBytes,
         _selectedSessionTimeoutSeconds, _selectedManifestTtlSeconds,
         string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl, _selectedNewPageUseLastUrl ? "1" : "0",
+        _selectedRecordingEnabled ? "1" : "0", _selectedRecordingMaxConcurrent, _selectedRecordingMaxMinutes,
     });
 
     private bool HasChangesToSave => _savedSnapshot == null || SaveSnapshot() != _savedSnapshot;
@@ -1080,7 +1143,7 @@
     private bool ShowPendingNewPageUseLastUrlNote => (_selectedNewPageUseLastUrl ? "1" : "0") != (Norm(_activeNewPageUseLastUrl) ?? "1");
 
     private int _settingsTab;
-    private static readonly string[] SettingsTabNames = { "CEF Settings", "Encoder Settings", "Transport", "Session & Cleanup", "Executables", "Admin Password" };
+    private static readonly string[] SettingsTabNames = { "CEF Settings", "Encoder Settings", "Transport", "Session & Cleanup", "Executables", "Admin Password", "Recording" };
 
     private bool SettingsTabHasPending(int tab) => tab switch
     {
@@ -1144,6 +1207,8 @@
         _selectedDiskCacheSizeBytes = null;
         _selectedMediaCacheSizeBytes = null;
         _selectedDefaultUrl = null;
+        _selectedRecordingMaxConcurrent = null;
+        _selectedRecordingMaxMinutes = null;
         _selectedWebRtcPacingBps = null;
         _selectedWebRtcIceServers = null;
         _selectedSessionTimeoutSeconds = null;
@@ -1233,6 +1298,13 @@
                 _selectedNewPageUseLastUrl = (pendingNewPageUseLastUrl ?? activeNewPageUseLastUrl ?? "1") != "0";
                 _newPageUseLastUrlSeeded = true;
             }
+            if (!_recordingEnabledSeeded)
+            {
+                _selectedRecordingEnabled = Saved("RecordingEnabled") == "1";
+                _recordingEnabledSeeded = true;
+            }
+            _selectedRecordingMaxConcurrent ??= Saved("RecordingMaxConcurrent") ?? "2";
+            _selectedRecordingMaxMinutes ??= Saved("RecordingMaxMinutes") ?? "30";
             _activeUseWebRtc = string.Equals(activeUseWebRtc, "1", StringComparison.OrdinalIgnoreCase);
             _activeWebRtcPacingBps = activeWebRtcPacingBps;
             _pendingWebRtcPacingBps = pendingWebRtcPacingBps;
@@ -1362,6 +1434,9 @@
         Field("ManifestTtlSeconds", _selectedManifestTtlSeconds);
         Field("DefaultUrl", string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl);
         Field("NewPageUseLastUrl", _selectedNewPageUseLastUrl ? "1" : "0");
+        Field("RecordingEnabled", _selectedRecordingEnabled ? "1" : "0");
+        Field("RecordingMaxConcurrent", _selectedRecordingMaxConcurrent?.Trim());
+        Field("RecordingMaxMinutes", _selectedRecordingMaxMinutes?.Trim());
 
         try
         {

@@ -43,7 +43,10 @@ namespace Xilium.CefGlue.Common
                 WithErrorHandling,
                 HandleException,
                 () => IsFullscreen,
-                logger);
+                logger)
+            {
+                IsVisible = () => _isVisible,
+            };
 
             _mouseCoordinator = _host.CreateInstance<IMouseCoordinator>();
             _mouseCoordinator.Attach(_context);
@@ -167,6 +170,7 @@ namespace Xilium.CefGlue.Common
             target.TextInput += _keyboardCoordinator.HandleTextInput;
 
             target.CompositionUpdated += _keyboardCoordinator.HandleImeComposition;
+            target.CompositionUpdatedWithClauses += _keyboardCoordinator.HandleImeComposition;
             target.CompositionCommitted += _keyboardCoordinator.HandleImeCommitText;
 
             target.DragEnter += _dragDropCoordinator.HandleDragEnter;
@@ -177,7 +181,12 @@ namespace Xilium.CefGlue.Common
 
         protected override CommonCefClient CreateCefClient()
         {
-            return new CommonCefClient(this, new CommonCefRenderHandler(_renderCallback, () => RenderHandler, _logger), _logger, _host);
+            var renderHandler = new CommonCefRenderHandler(_renderCallback, () => RenderHandler, _logger)
+            {
+                ImeBoundsChanged = (range, bounds) => Target?.UpdateImeCompositionBounds(range, bounds),
+                TextInputActiveChanged = active => Target?.SetTextInputActive(active),
+            };
+            return new CommonCefClient(this, renderHandler, _logger, _host);
         }
 
         protected override void SetupBrowserView(CefWindowInfo windowInfo, int width, int height, IntPtr hostViewHandle)
@@ -220,15 +229,6 @@ namespace Xilium.CefGlue.Common
         {
 
             base.OnHandleLoadingStateChange(browser, isLoading, canGoBack, canGoForward);
-            if (!isLoading)
-            {
-                ActionTask.Run(async () =>
-                {
-                    await Task.Delay(ResizeDelay);
-                    BrowserHost?.NotifyScreenInfoChanged();
-                    BrowserHost?.SetFocus(true);
-                });
-            }
         }
 
         protected override void OnandleLoadStart(CefBrowser browser, CefFrame frame, CefTransitionType transitionType)

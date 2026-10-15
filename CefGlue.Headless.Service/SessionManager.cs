@@ -30,9 +30,29 @@ namespace Xilium.CefGlue.Headless.Service
 
         private readonly IsolationContextStore _isolation = Program.IsolationContexts;
 
-        public SessionManager(IFrameTransport frameSocketServer)
+        private readonly Func<string> _viewerIp;
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Path, string FileName)> _finishedRecordings = new();
+
+        private bool IsSelectedTabRecording
+            => _selectedId != null && _sessions.TryGetValue(_selectedId, out var selected) && selected.Recorder?.IsVideo == true;
+
+        private bool IsAnyTabRecording
+        {
+            get
+            {
+                foreach (var session in _sessions.Values)
+                {
+                    if (session.Recorder?.IsVideo == true) return true;
+                }
+                return false;
+            }
+        }
+
+        public SessionManager(IFrameTransport frameSocketServer, Func<string> viewerIp = null)
         {
             _frameSocketServer = frameSocketServer;
+            _viewerIp = viewerIp ?? (() => null);
             _popupLifeSpanHandler = new HeadlessPopupLifeSpanHandler(this);
         }
 
@@ -68,10 +88,18 @@ namespace Xilium.CefGlue.Headless.Service
                     return;
                 }
 
-                switch (actionProp.GetString())
+                var action = actionProp.GetString();
+
+                if (RecordingLocks.IsLocked(action, root, IsAnyTabRecording, IsSelectedTabRecording))
+                {
+                    _frameSocketServer.BroadcastText(JsonSerializer.Serialize(new { type = "recording", state = "locked", action, message = "Not available while recording" }, CamelCaseJsonOptions));
+                    return;
+                }
+
+                switch (action)
                 {
                     case "add":
-                        AddBrowser(Program.NewPageUsesLastUrl ? GetString(root, "url") : Program.DefaultUrl);
+                        Select(AddBrowser(Program.NewPageUsesLastUrl ? GetString(root, "url") : Program.DefaultUrl));
                         break;
 
                     case "remove":
@@ -80,6 +108,14 @@ namespace Xilium.CefGlue.Headless.Service
 
                     case "select":
                         Select(GetString(root, "id"));
+                        break;
+
+                    case "viewmode":
+                        SetViewMode(GetString(root, "mode"));
+                        break;
+
+                    case "record":
+                        HandleRecord(GetString(root, "op"), GetString(root, "kind"), GetBool(root, "includeCursor"), GetString(root, "consentVersion"), GetDouble(root, "cursorScale"));
                         break;
 
                     case "navigate":
@@ -192,7 +228,10 @@ namespace Xilium.CefGlue.Headless.Service
                         break;
 
                     case "mobile":
-                        SetMobileEmulation(GetBool(root, "enabled"), GetInt(root, "width"), GetInt(root, "height"), GetString(root, "userAgent"), GetString(root, "platform"), (float)GetDouble(root, "dpr"));
+                        SetMobileEmulation(GetBool(root, "enabled"), GetInt(root, "width"), GetInt(root, "height"), GetString(root, "userAgent"), GetString(root, "platform"), (float)GetDouble(root, "dpr"),
+                            !root.TryGetProperty("mobile", out var mobileProp) || mobileProp.ValueKind != JsonValueKind.False,
+                            !root.TryGetProperty("touch", out var touchProp) || touchProp.ValueKind != JsonValueKind.False,
+                            root.TryGetProperty("meta", out var metaProp) && metaProp.ValueKind == JsonValueKind.Object ? metaProp : (JsonElement?)null);
                         break;
 
                     case "zoom":
@@ -328,6 +367,7 @@ namespace Xilium.CefGlue.Headless.Service
             browser.TitleChanged += (s, title) =>
             {
                 session.Title = title ?? "";
+                NoteRecordingNavigation(session);
                 PushState();
             };
 
@@ -388,6 +428,21 @@ namespace Xilium.CefGlue.Headless.Service
             downloadHandler.DownloadFailed += filePath => TryDeleteTempFile(filePath);
 
             browser.RequestHandler = new HeadlessRequestHandler(session);
+            browser.FocusHandler = new BackgroundFocusGuard(session.Id, () => _selectedId);
+
+            browser.BrowserInitialized += () =>
+            {
+                if (session.Id == _selectedId)
+                {
+                    browser.Target.InjectVisibility(true);
+                    browser.Target.InjectFocus();
+                }
+                else
+                {
+                    browser.Target.InjectVisibility(false);
+                    browser.Target.InjectLostFocus();
+                }
+            };
             browser.ContextMenuHandler = new HeadlessContextMenuHandler(url => AddBrowser(url, existingContextId: session.ContextId));
 
             var fileDialogHandler = new HeadlessFileDialogHandler();
@@ -429,6 +484,7 @@ namespace Xilium.CefGlue.Headless.Service
 
             var renderSurface = (HeadlessRenderSurface)browser.Target.RenderSurface;
             renderSurface.FrameReady += frame => HandleFrameReady(session, frame);
+            renderSurface.RecordingFrameReady += frame => HandleRecordingFrame(session, frame);
 
             var audioSampleRate = 0;
             var audioChannels = 0;
@@ -437,6 +493,8 @@ namespace Xilium.CefGlue.Headless.Service
             {
                 audioSampleRate = sampleRate;
                 audioChannels = channels;
+                session.AudioSampleRate = sampleRate;
+                session.AudioChannels = channels;
 
                 var pcmuTestMode = string.Equals(Environment.GetEnvironmentVariable("CEFGLUE_WEBRTC_AUDIO_CODEC"), "pcmu", StringComparison.OrdinalIgnoreCase);
                 if (pcmuTestMode)
@@ -465,6 +523,13 @@ namespace Xilium.CefGlue.Headless.Service
                     return;
                 }
 
+                if (session.Recorder is { IsVideo: false } pcmRecorder
+                    && pcmRecorder.AudioPcm(channelData, frames, audioChannels, audioSampleRate) == SessionRecorder.Stopped
+                    && pcmRecorder.SignalStopped())
+                {
+                    FinishRecording(session, pcmRecorder);
+                }
+
                 var opusEncoder = session.OpusEncoder;
                 if (opusEncoder == null)
                 {
@@ -475,6 +540,12 @@ namespace Xilium.CefGlue.Headless.Service
                 opusEncoder.Encode(channelData, frames, opusPacket =>
                 {
                     _frameSocketServer.BroadcastAudioOpus(opusEncoder.EncodeSampleRate, audioChannels, opusEncoder.FrameSizeSamplesPerChannel, opusPacket);
+                    if (session.Recorder is { IsVideo: true } audioRecorder
+                        && audioRecorder.Audio(opusPacket, opusEncoder.EncodeSampleRate, audioChannels, opusEncoder.FrameSizeSamplesPerChannel) == SessionRecorder.Stopped
+                        && audioRecorder.SignalStopped())
+                    {
+                        FinishRecording(session, audioRecorder);
+                    }
                 });
             };
 
@@ -482,6 +553,8 @@ namespace Xilium.CefGlue.Headless.Service
 
             browser.Target.CursorChanged += cursorType =>
             {
+                CursorOverlayOf(session).SetCursorType(cursorType);
+
                 if (session.Id != _selectedId)
                 {
                     return;
@@ -575,9 +648,14 @@ namespace Xilium.CefGlue.Headless.Service
             }
 
             _sessions.Remove(id);
+            if (session.Recorder is { } closingRecorder)
+            {
+                FinishRecording(session, closingRecorder);
+            }
             session.Browser.Dispose();
             session.H264Encoder?.Dispose();
             session.OpusEncoder?.Dispose();
+            ReleaseRecordingEncoder(session);
 
             if (_isolation != null && session.ContextId != null && !_sessions.Values.Any(s => s.ContextId == session.ContextId))
             {
@@ -732,13 +810,33 @@ namespace Xilium.CefGlue.Headless.Service
             {
                 previous.Browser.Target.InjectLostFocus();
                 previous.Browser.Target.InjectVisibility(false);
+
+                if (previous.Recorder is { } pausedRecorder)
+                {
+                    pausedRecorder.Pause();
+                    SendRecordingState(previous.Id, "paused", pausedRecorder);
+                }
             }
 
             _selectedId = id;
+
+            foreach (var other in _sessions.Values)
+            {
+                if (other.Id != id)
+                {
+                    other.Browser.Target.InjectLostFocus();
+                }
+            }
             session.Browser.Target.InjectVisibility(true);
             session.Browser.Target.InjectFocus();
 
             session.H264Encoder?.ForceNextFrameKeyFrame();
+
+            if (session.Recorder is { } resumedRecorder && resumedRecorder.Resume() == SessionRecorder.Resumed)
+            {
+                session.RecordingEncoder?.ForceNextFrameKeyFrame();
+                SendRecordingState(session.Id, "resumed", resumedRecorder);
+            }
 
             PushState();
         }
@@ -805,7 +903,8 @@ namespace Xilium.CefGlue.Headless.Service
             PushState();
         }
 
-        public void SetMobileEmulation(bool enabled, int width, int height, string userAgent, string platform, float dpr = 1f)
+        public void SetMobileEmulation(bool enabled, int width, int height, string userAgent, string platform, float dpr = 1f,
+            bool mobile = true, bool touch = true, JsonElement? meta = null)
         {
             if (_selectedId == null || !_sessions.TryGetValue(_selectedId, out var session))
             {
@@ -817,6 +916,7 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
+            var reloadNeeded = true;
             if (enabled)
             {
                 if (width <= 0 || height <= 0)
@@ -829,6 +929,18 @@ namespace Xilium.CefGlue.Headless.Service
                     dpr = 1f;
                 }
 
+                var key = $"{width}x{height}@{dpr}|{userAgent}|{platform}|{mobile}|{touch}|{meta?.GetRawText()}";
+                if (session.IsMobileEmulationActive && session.MobileEmulationKey == key)
+                {
+                    ApplyMobileSurface(session, width, height, dpr);
+                    return;
+                }
+                session.MobileEmulationKey = key;
+
+                var uaKey = $"{userAgent}|{platform}|{meta?.GetRawText()}";
+                reloadNeeded = session.MobileUaKey != uaKey;
+                session.MobileUaKey = uaKey;
+
                 session.HasEverUsedMobileEmulation = true;
 
                 var isLandscape = width > height;
@@ -837,28 +949,22 @@ namespace Xilium.CefGlue.Headless.Service
                     width,
                     height,
                     deviceScaleFactor = dpr,
-                    mobile = true,
+                    mobile,
                     screenOrientation = new
                     {
                         type = isLandscape ? "landscapePrimary" : "portraitPrimary",
                         angle = isLandscape ? 90 : 0,
                     },
                 });
-                session.Browser.SendDevToolsMessage("Emulation.setTouchEmulationEnabled", new { enabled = true });
-                session.Browser.SendDevToolsMessage("Emulation.setUserAgentOverride", new
-                {
-                    userAgent = userAgent ?? "",
-                    platform = platform ?? "",
-                });
+                session.Browser.SendDevToolsMessage("Emulation.setTouchEmulationEnabled", new { enabled = touch });
+                session.Browser.SendDevToolsMessage("Emulation.setUserAgentOverride", MobileUserAgentOverride(userAgent, platform, meta));
 
-                WithSelectedTarget(t =>
-                {
-                    t.RenderSurface.DeviceScaleFactor = dpr;
-                    t.Resize(width, height);
-                });
+                ApplyMobileSurface(session, width, height, dpr);
             }
             else
             {
+                session.MobileEmulationKey = null;
+                session.MobileUaKey = null;
                 session.Browser.SendDevToolsMessage("Emulation.clearDeviceMetricsOverride");
                 session.Browser.SendDevToolsMessage("Emulation.setTouchEmulationEnabled", new { enabled = false });
                 session.Browser.SendDevToolsMessage("Emulation.setEmitTouchEventsForMouse", new { enabled = false });
@@ -867,7 +973,53 @@ namespace Xilium.CefGlue.Headless.Service
 
             session.IsMobileEmulationActive = enabled;
             session.ResponsiveUserAgent = null;
-            session.Browser.Reload(ignoreCache: true);
+            if (reloadNeeded)
+            {
+                session.Browser.Reload(ignoreCache: true);
+            }
+        }
+
+        private void ApplyMobileSurface(BrowserSession session, int width, int height, float dpr)
+        {
+            WithSelectedTarget(t =>
+            {
+                var sameSize = t.RenderSurface.Width == width && t.RenderSurface.Height == height;
+                if (sameSize && Math.Abs(t.RenderSurface.DeviceScaleFactor - dpr) > 0.0001f)
+                {
+                    session.Browser.OverrideDeviceScaleFactor(dpr);
+                    return;
+                }
+                t.RenderSurface.DeviceScaleFactor = dpr;
+                t.Resize(width, height);
+            });
+        }
+
+        private static Dictionary<string, object> MobileUserAgentOverride(string userAgent, string platform, JsonElement? meta)
+        {
+            var fullVersion = CefRuntime.ChromeVersion ?? "";
+            var major = fullVersion.Split('.')[0];
+            var result = new Dictionary<string, object>
+            {
+                ["userAgent"] = (userAgent ?? "").Replace("%s", major + ".0.0.0"),
+                ["platform"] = platform ?? "",
+            };
+
+            if (!string.IsNullOrEmpty(userAgent) && meta is JsonElement m)
+            {
+                string Str(string name) => m.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "";
+                result["userAgentMetadata"] = new Dictionary<string, object>
+                {
+                    ["brands"] = new[] { new { brand = "Chromium", version = major }, new { brand = "Not_A Brand", version = "99" } },
+                    ["fullVersionList"] = new[] { new { brand = "Chromium", version = fullVersion }, new { brand = "Not_A Brand", version = "99.0.0.0" } },
+                    ["platform"] = Str("platform"),
+                    ["platformVersion"] = Str("platformVersion"),
+                    ["architecture"] = Str("architecture"),
+                    ["model"] = Str("model"),
+                    ["mobile"] = m.TryGetProperty("mobile", out var mob) && mob.ValueKind == JsonValueKind.True,
+                };
+            }
+
+            return result;
         }
 
         public void SetZoomLevel(double level)
@@ -909,7 +1061,126 @@ namespace Xilium.CefGlue.Headless.Service
         public void InjectMouseMove(int x, int y, CefEventFlags modifiers)
         {
             WithSelectedTarget(t => t.InjectMouseMove(new CefMouseEvent(x, y, modifiers)));
+            NoteRecordingCursor(x, y, click: false);
         }
+
+        private void NoteRecordingCursor(int x, int y, bool click)
+        {
+            if (_selectedId == null || !_sessions.TryGetValue(_selectedId, out var session) || session.Recorder is not { IncludeCursor: true })
+            {
+                return;
+            }
+
+            var target = session.Browser.Target;
+            var overlay = CursorOverlayOf(session);
+            if (click)
+            {
+                overlay.Click(x, y, target.Width, target.Height);
+            }
+            else
+            {
+                overlay.Move(x, y, target.Width, target.Height);
+            }
+        }
+
+        private void HandleRecordingFrame(BrowserSession session, HeadlessFrame frame)
+        {
+            if (session.Id != _selectedId || session.Recorder is not { IsVideo: true, IncludeCursor: true })
+            {
+                return;
+            }
+
+            System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, frame);
+            if (System.Threading.Interlocked.CompareExchange(ref session.RecordingEncodeRunning, 1, 0) == 0)
+            {
+                Task.Run(() => RecordingEncodeLoop(session));
+            }
+        }
+
+        private void RecordingEncodeLoop(BrowserSession session)
+        {
+            while (true)
+            {
+                var frame = System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, null);
+                if (frame == null)
+                {
+                    System.Threading.Volatile.Write(ref session.RecordingEncodeRunning, 0);
+                    if (System.Threading.Volatile.Read(ref session.PendingRecordingFrame) != null
+                        && System.Threading.Interlocked.CompareExchange(ref session.RecordingEncodeRunning, 1, 0) == 0)
+                    {
+                        continue;
+                    }
+                    return;
+                }
+
+                var recorder = session.Recorder;
+                if (recorder is not { IsVideo: true, IncludeCursor: true } || _disposed)
+                {
+                    DisposeRecordingEncoderOwned(session);
+                    continue;
+                }
+
+                try
+                {
+                    if (session.RecordingEncoder == null || session.RecordingEncoderWidth != frame.Width || session.RecordingEncoderHeight != frame.Height)
+                    {
+                        DisposeRecordingEncoderOwned(session);
+                        var plugin = Program.SelectedEncoderPlugin
+                            ?? throw new InvalidOperationException("no video encoder plugin is installed");
+                        session.RecordingEncoder = plugin.Create(new EncoderCreateArgs
+                        {
+                            Width = frame.Width,
+                            Height = frame.Height,
+                            Quality = _h264Quality,
+                            EncodeWidth = frame.Width,
+                            EncodeHeight = frame.Height,
+                            Settings = Program.EncoderPluginSettings,
+                        });
+                        session.RecordingEncoderWidth = frame.Width;
+                        session.RecordingEncoderHeight = frame.Height;
+                    }
+
+                    session.RecordingEncoder.Encode(frame.Buffer, (packet, isKey) =>
+                    {
+                        if (recorder.Video(packet, isKey, frame.Width, frame.Height) == SessionRecorder.Stopped && recorder.SignalStopped())
+                        {
+                            FinishRecording(session, recorder);
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Recording] cursor-recording encoder failed for tab {session.Id}: {ex.Message}");
+                    DisposeRecordingEncoderOwned(session);
+                    if (recorder.SignalStopped())
+                    {
+                        SendRecording(new { type = "recording", state = "error", tabId = session.Id, message = "Recording encoder failed - recording stopped" });
+                        FinishRecording(session, recorder);
+                    }
+                }
+            }
+        }
+
+        private static void DisposeRecordingEncoderOwned(BrowserSession session)
+        {
+            session.RecordingEncoder?.Dispose();
+            session.RecordingEncoder = null;
+            session.RecordingEncoderWidth = 0;
+            session.RecordingEncoderHeight = 0;
+        }
+
+        private static void ReleaseRecordingEncoder(BrowserSession session)
+        {
+            System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, null);
+            if (System.Threading.Interlocked.CompareExchange(ref session.RecordingEncodeRunning, 1, 0) == 0)
+            {
+                DisposeRecordingEncoderOwned(session);
+                System.Threading.Volatile.Write(ref session.RecordingEncodeRunning, 0);
+            }
+        }
+
+        private static RecordingCursorOverlay CursorOverlayOf(BrowserSession session)
+            => ((HeadlessRenderSurface)session.Browser.Target.RenderSurface).CursorOverlay;
 
         public void InjectMouseButton(int x, int y, CefMouseButtonType button, bool isDown, int clickCount, CefEventFlags modifiers)
         {
@@ -920,6 +1191,7 @@ namespace Xilium.CefGlue.Headless.Service
                 if (isDown)
                 {
                     t.InjectMouseButtonDown(mouseEvent, button, clickCount);
+                    NoteRecordingCursor(x, y, click: true);
                 }
                 else
                 {
@@ -1358,6 +1630,13 @@ namespace Xilium.CefGlue.Headless.Service
 
         public void InjectKeyDown(int windowsKeyCode, CefEventFlags modifiers)
         {
+            if (windowsKeyCode == 0x1B && _selectedId != null && _sessions.TryGetValue(_selectedId, out var session)
+                && session.Browser.IsPageFullscreen)
+            {
+                session.Browser.ExitFullscreen();
+                return;
+            }
+
             WithSelectedTarget(t => t.InjectKeyDown(new CefKeyEvent
             {
                 EventType = CefKeyEventType.RawKeyDown,
@@ -1400,6 +1679,11 @@ namespace Xilium.CefGlue.Headless.Service
 
             if (_selectedId != null && _sessions.TryGetValue(_selectedId, out var session))
             {
+                if (session.IsMobileEmulationActive && session.ViewMode != "mobile")
+                {
+                    SetMobileEmulation(false, 0, 0, null, null);
+                }
+
                 if (!string.IsNullOrEmpty(userAgent) && !session.IsMobileEmulationActive)
                 {
                     session.Browser.SendDevToolsMessage("Emulation.setUserAgentOverride", new { userAgent });
@@ -1478,6 +1762,7 @@ namespace Xilium.CefGlue.Headless.Service
             }
 
             session.CurrentUrl = url;
+            NoteRecordingNavigation(session);
             PushState();
         }
 
@@ -1658,6 +1943,12 @@ namespace Xilium.CefGlue.Headless.Service
             session.H264Encoder.Encode(frame.Buffer, (packetBytes, isKeyFrame) =>
             {
                 _frameSocketServer.BroadcastCompressed(packetBytes, frame.Width, frame.Height, FramePixelFormat.H264, isKeyFrame, generation);
+                if (session.Recorder is { IsVideo: true, IncludeCursor: false } videoRecorder
+                    && videoRecorder.Video(packetBytes, isKeyFrame, frame.Width, frame.Height) == SessionRecorder.Stopped
+                    && videoRecorder.SignalStopped())
+                {
+                    FinishRecording(session, videoRecorder);
+                }
             });
 
             if (usesScalableEncoder)
@@ -1751,9 +2042,17 @@ namespace Xilium.CefGlue.Headless.Service
                         canGoBack = s.CanGoBack,
                         canGoForward = s.CanGoForward,
                         isLoading = s.IsLoading,
+                        viewMode = s.ViewMode,
                     })
                     .ToArray(),
                 selectedId = _selectedId,
+                recording = new
+                {
+                    enabled = RecordingSettings.Enabled,
+                    video = RecordingSettings.Enabled && _frameFormat == FramePixelFormat.H264
+                        && Program.SelectedEncoderPlugin?.Codec == VideoCodecFamily.H264,
+                    tabs = _sessions.Values.Where(s => s.Recorder != null).Select(s => s.Id).ToArray(),
+                },
                 addressBarValue = AddressBarValue,
                 overlayEnabled = _overlayEnabled,
                 frameFormat = _frameFormat switch
@@ -1774,15 +2073,279 @@ namespace Xilium.CefGlue.Headless.Service
             _frameSocketServer.BroadcastText(JsonSerializer.Serialize(state));
         }
 
+        private void SetViewMode(string mode)
+        {
+            if (mode is not ("responsive" or "clip" or "mobile")
+                || _selectedId == null || !_sessions.TryGetValue(_selectedId, out var session)
+                || session.ViewMode == mode)
+            {
+                return;
+            }
+
+            session.ViewMode = mode;
+            PushState();
+        }
+
+        private void HandleRecord(string op, string kind, bool includeCursor, string consentVersion, double cursorScale)
+        {
+            if (op == "start")
+            {
+                StartRecording(kind == "audio" ? "audio" : "video", includeCursor, consentVersion);
+                if (cursorScale > 0 && _selectedId != null && _sessions.TryGetValue(_selectedId, out var started) && started.Recorder is { IncludeCursor: true })
+                {
+                    CursorOverlayOf(started).SetDisplayScale(cursorScale);
+                }
+            }
+            else if (op == "cursorScale")
+            {
+                if (cursorScale > 0 && _selectedId != null && _sessions.TryGetValue(_selectedId, out var scaled) && scaled.Recorder is { IncludeCursor: true })
+                {
+                    CursorOverlayOf(scaled).SetDisplayScale(cursorScale);
+                }
+            }
+            else if (op == "stop" && _selectedId != null && _sessions.TryGetValue(_selectedId, out var current) && current.Recorder is { } recorder)
+            {
+                FinishRecording(current, recorder);
+            }
+        }
+
+        private void StartRecording(string kind, bool includeCursor, string consentVersion)
+        {
+            var isVideo = kind == "video";
+            if (!RecordingSettings.Enabled)
+            {
+                SendRecording(new { type = "recording", state = "unavailable", message = "Recording is turned off on this server" });
+                return;
+            }
+
+            if (_selectedId == null || !_sessions.TryGetValue(_selectedId, out var session) || !session.HasNavigated)
+            {
+                SendRecording(new { type = "recording", state = "error", message = "Open a page first" });
+                return;
+            }
+
+            if (session.Recorder != null)
+            {
+                return;
+            }
+
+            if (isVideo && (_frameFormat != FramePixelFormat.H264 || Program.SelectedEncoderPlugin?.Codec != VideoCodecFamily.H264))
+            {
+                SendRecording(new { type = "recording", state = "unavailable", kind = "video", message = "Video recording needs the H.264 video stream - audio-only recording still works" });
+                return;
+            }
+
+            var running = _sessions.Values.Count(s => s.Recorder?.IsVideo == true);
+            if (isVideo && running >= RecordingSettings.MaxConcurrent)
+            {
+                SendRecording(new { type = "recording", state = "error", tabId = session.Id, message = $"Maximum {RecordingSettings.MaxConcurrent} recordings running - stop one first" });
+                return;
+            }
+
+            var outputDir = RecordingSettings.OutputDir(Program.TenantId);
+            Directory.CreateDirectory(outputDir);
+            var config = new
+            {
+                url = session.CurrentUrl,
+                title = session.Title,
+                tenant = Program.TenantId ?? "standalone",
+                recorderIp = _viewerIp() ?? "",
+                server = Environment.MachineName,
+                consentVersion = consentVersion ?? "",
+                requiredConsentVersion = RecordingSettings.ConsentVersion,
+                toolVersion = "CefAsService " + typeof(SessionManager).Assembly.GetName().Version,
+                kind,
+                includeCursor = isVideo && includeCursor,
+                audioChannels = 2,
+                audioBitrateKbps = 128,
+                sampleRate = session.AudioSampleRate > 0 ? session.AudioSampleRate : 44100,
+                channels = session.AudioChannels > 0 ? session.AudioChannels : 2,
+                outputDir,
+                policy = new { allowlist = RecordingSettings.Allowlist, domains = RecordingSettings.Domains },
+                limits = new { maxMinutes = isVideo ? RecordingSettings.MaxMinutes : 0, maxMb = RecordingSettings.MaxMb },
+            };
+
+            var recorder = SessionRecorder.TryStart(session.Id, kind, config, isVideo && includeCursor, out _, out var error);
+            if (recorder == null)
+            {
+                SendRecording(new { type = "recording", state = "error", tabId = session.Id, message = error });
+                return;
+            }
+
+            session.Recorder = recorder;
+            if (isVideo && includeCursor)
+            {
+                CursorOverlayOf(session).Enabled = true;
+            }
+
+            if (isVideo)
+            {
+                if (session.ViewMode == "responsive")
+                {
+                    session.ViewModeBeforeRecording = session.ViewMode;
+                    session.ViewMode = "clip";
+                }
+
+                if (_overlayEnabled)
+                {
+                    SetOverlayEnabled(false);
+                }
+                PushState();
+                session.H264Encoder?.ForceNextFrameKeyFrame();
+                RequestRepaint();
+            }
+
+            SendRecording(new { type = "recording", state = "started", tabId = session.Id, kind, includeCursor = isVideo && includeCursor, elapsedMs = 0 });
+        }
+
+        private void FinishRecording(BrowserSession session, SessionRecorder recorder)
+        {
+            if (ReferenceEquals(session.Recorder, recorder))
+            {
+                session.Recorder = null;
+            }
+
+            if (recorder.IncludeCursor)
+            {
+                CursorOverlayOf(session).Enabled = false;
+                ReleaseRecordingEncoder(session);
+            }
+
+            if (session.ViewModeBeforeRecording is { } previousMode)
+            {
+                session.ViewMode = previousMode;
+                session.ViewModeBeforeRecording = null;
+                if (!_disposed)
+                {
+                    PushState();
+                }
+            }
+
+            var tabId = session.Id;
+            Task.Run(() =>
+            {
+                using var result = recorder.End();
+                if (result == null)
+                {
+                    SendRecording(new { type = "recording", state = "error", tabId, message = "Recording could not be finished" });
+                    return;
+                }
+
+                var r = result.RootElement;
+                string S(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                long L(string name) => r.TryGetProperty(name, out var v) && v.TryGetInt64(out var x) ? x : 0;
+
+                var id = S("id");
+                if (string.IsNullOrEmpty(id) || L("size") == 0)
+                {
+                    SendRecording(new { type = "recording", state = "error", tabId, message = S("error") ?? "Recording is empty" });
+                    return;
+                }
+
+                var path = S("path");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    _finishedRecordings[id] = (path, S("fileName") ?? Path.GetFileName(path));
+                }
+
+                var tenant = Program.TenantId;
+                SendRecording(new
+                {
+                    type = "recording",
+                    state = "ready",
+                    tabId,
+                    id,
+                    fileName = S("fileName"),
+                    size = L("size"),
+                    durationMs = L("durationMs"),
+                    sha256 = S("sha256"),
+                    stopReason = S("stopReason"),
+                    downloadPath = string.IsNullOrEmpty(tenant) ? null : $"/recording/{Uri.EscapeDataString(tenant)}/{Uri.EscapeDataString(id)}",
+                });
+            });
+        }
+
+        private void NoteRecordingNavigation(BrowserSession session)
+        {
+            if (session.Recorder is not { } recorder)
+            {
+                return;
+            }
+
+            var code = recorder.Navigated(session.CurrentUrl, session.Title);
+            if (code == SessionRecorder.BlockedPaused)
+            {
+                if (!recorder.BlockedNotified)
+                {
+                    recorder.BlockedNotified = true;
+                    SendRecordingState(session.Id, "paused", recorder, "Recording paused - this site cannot be recorded");
+                }
+            }
+            else if (code == SessionRecorder.Resumed)
+            {
+                recorder.BlockedNotified = false;
+                session.H264Encoder?.ForceNextFrameKeyFrame();
+                session.RecordingEncoder?.ForceNextFrameKeyFrame();
+                SendRecordingState(session.Id, "resumed", recorder);
+            }
+        }
+
+        private void SendRecordingState(string tabId, string state, SessionRecorder recorder, string message = null)
+        {
+            long elapsedMs = 0;
+            using (var status = recorder.Status())
+            {
+                if (status != null && status.RootElement.TryGetProperty("durationMs", out var d) && d.TryGetInt64(out var ms))
+                {
+                    elapsedMs = ms;
+                }
+            }
+
+            SendRecording(new { type = "recording", state, tabId, elapsedMs, message });
+        }
+
+        public RecordingFile ResolveRecording(string id)
+        {
+            if (string.IsNullOrEmpty(id) || id.Length > 64 || !id.All(char.IsAsciiLetterOrDigit)
+                || !_finishedRecordings.TryGetValue(id, out var entry))
+            {
+                return null;
+            }
+
+            return new RecordingFile
+            {
+                Path = entry.Path,
+                FileName = entry.FileName,
+                ContentType = entry.FileName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase) ? "audio/mpeg" : "video/mp4",
+                BytesPerSecond = RecordingSettings.DownloadBytesPerSecond,
+                Delivered = () =>
+                {
+                    _finishedRecordings.TryRemove(id, out _);
+                    try { File.Delete(entry.Path); }
+                    catch (IOException ex) { Console.WriteLine($"[Recording] Could not delete {entry.Path}: {ex.Message}"); }
+                    catch (UnauthorizedAccessException ex) { Console.WriteLine($"[Recording] Could not delete {entry.Path}: {ex.Message}"); }
+                },
+            };
+        }
+
+        private void SendRecording(object payload)
+            => _frameSocketServer.BroadcastText(JsonSerializer.Serialize(payload, CamelCaseJsonOptions));
+
         public void Dispose()
         {
             _disposed = true;
 
             foreach (var session in _sessions.Values)
             {
+                if (session.Recorder is { } shutdownRecorder)
+                {
+                    session.Recorder = null;
+                    shutdownRecorder.End()?.Dispose();
+                }
                 session.Browser.Dispose();
                 session.H264Encoder?.Dispose();
                 session.OpusEncoder?.Dispose();
+                ReleaseRecordingEncoder(session);
             }
 
             _sessions.Clear();

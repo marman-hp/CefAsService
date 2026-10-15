@@ -13,5 +13,8 @@
     </Reference>
     <None Include="$(MSBuildThisFileDirectory)opus\opus.dll" Link="opus.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)opus\COPYING-opus.txt" Link="COPYING-opus.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)recorder\cefrec.dll" Link="cefrec.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)recorder\libmp3lame.dll" Link="libmp3lame.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)recorder\libmp3lame.LICENSE.txt" Link="libmp3lame.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 </Project>

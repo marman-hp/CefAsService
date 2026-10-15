@@ -119,7 +119,11 @@ namespace Xilium.CefGlue.Common.Coordinators
                     browserHost.Invalidate(CefPaintElementType.View);
                     await Task.Delay(InvalidateRetryInterval);
                 }
-                Context.GetBrowserHost()?.SetFocus(true);
+
+                if (Context.IsVisible())
+                {
+                    Context.GetBrowserHost()?.SetFocus(true);
+                }
 
                 if (generation == _resizeGeneration && _resizeAckPending)
                 {

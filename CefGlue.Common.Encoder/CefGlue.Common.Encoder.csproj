@@ -12,6 +12,7 @@
     <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
     <Authors>Marman-HP</Authors>
     <Copyright>Copyright © 2026 Marman-HP.</Copyright>
+    <RepositoryUrl>https://github.com/marman-hp/CefAsService</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>

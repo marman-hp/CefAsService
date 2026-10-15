@@ -74,6 +74,18 @@ namespace Xilium.CefGlue.Headless
             UnderlyingBrowser?.GetHost()?.CloseBrowser(true);
         }
 
+        public void OverrideDeviceScaleFactor(float deviceScaleFactor)
+        {
+            (Adapter as CefGlueOffScreenAdapter)?.OverrideDeviceScaleFactor(deviceScaleFactor);
+        }
+
+        public bool IsPageFullscreen => Adapter.IsFullscreen;
+
+        public void ExitFullscreen()
+        {
+            Adapter.ExitFullscreen(false);
+        }
+
         private static int _devToolsMessageId;
 
         public bool SendDevToolsMessage(string method, object @params = null)

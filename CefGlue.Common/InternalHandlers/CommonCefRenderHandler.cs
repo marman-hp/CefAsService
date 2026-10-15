@@ -81,11 +81,17 @@ namespace Xilium.CefGlue.Common.InternalHandlers
 
         protected override void OnImeCompositionRangeChanged(CefBrowser browser, CefRange selectedRange, CefRectangle[] characterBounds)
         {
+            ImeBoundsChanged?.Invoke(selectedRange, characterBounds);
             _getRenderHandler()?.HandleImeCompositionRangeChanged(browser, selectedRange, characterBounds);
         }
 
+        public Action<CefRange, CefRectangle[]> ImeBoundsChanged { get; set; }
+
+        public Action<bool> TextInputActiveChanged { get; set; }
+
         protected override void OnVirtualKeyboardRequested(CefBrowser browser, CefTextInputMode inputMode)
         {
+            TextInputActiveChanged?.Invoke(inputMode != CefTextInputMode.None);
             _owner.HandleVirtualKeyboardRequested(inputMode);
         }
 

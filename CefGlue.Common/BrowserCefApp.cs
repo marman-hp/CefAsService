@@ -48,11 +48,14 @@ namespace Xilium.CefGlue.Common
 
                     commandLine.AppendSwitch("disable-smooth-scrolling", "1");
 
+                    var disabledFeatures = new List<string> { "BackForwardCache" };
                     if (CefRuntime.Platform == CefRuntimePlatform.Windows)
                     {
                         commandLine.AppendSwitch("disable-site-isolation-trials");
-                        commandLine.AppendSwitch("disable-features", "IsolateOrigins,SitePerProcess");
+                        disabledFeatures.Add("IsolateOrigins");
+                        disabledFeatures.Add("SitePerProcess");
                     }
+                    commandLine.AppendSwitch("disable-features", string.Join(",", disabledFeatures));
 
                 }
 

@@ -22,6 +22,8 @@ and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Ad
 - **Multi-account isolation:** by default, each tenant gets one persistent browser context. With `--isolation-mode-session`, every tab gets its own context, so you can run several logins to the same site side by side.
 - **Sessions that survive:** configurable session timeout and manifest TTL, last-URL restore, and logins kept across Broker restarts.
 - **Full interaction:** mouse, keyboard, touch and on-screen keyboard (Android), popups. Phones get a mobile viewer page automatically.
+- **Mobile device mode:** Chrome DevTools' device list (iPhone, Pixel, Galaxy, iPad, foldables and more) with the device's user agent, Client Hints and touch, rotation and device zoom.
+- **Session recording:** record a tab to MP4 (video) or MP3 (audio only) and download it when you stop. The recording feature only works on non-sensitive sites; otherwise, the recording is blocked.
 - **Pluggable video encoders:** loaded from `plugins/encoders/`. The OpenH264 plugin is included (the codec itself is a one-click download from Cisco, see below); the built-in formats are JPG.
 - **Admin web UI:** password-protected and loopback-only. Start/stop/restart the Broker, view live workers (OS, client IP, created), and manage encoder settings, session timeout, default URL and executables.
 
@@ -154,8 +156,26 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 - For public deployments, put a reverse proxy with a real certificate in front and use `--no-selfsigned-https`.
 - Workers run with media streaming enabled (needed for audio), so a page opened in a worker can use the **server's** microphone or camera without a prompt. On a server with a microphone, keep that in mind.
 
+## Release history
+
+### v0.2.0
+
+- Upgraded to **CEF 154** (Chromium 154.0.8037.94).
+- Added **Mobile device mode**: Chrome DevTools' device list (iPhone, Pixel, Galaxy, iPad, foldables and more) with each device's user agent, Client Hints and touch, plus rotation and device zoom.
+- Added **session recording**: video (MP4) and audio only (MP3), with recording settings in Admin.
+- The view mode (Clip / Responsive / Mobile) is now per tab.
+- Fixed `<select>` dropdowns showing blank or closing right away when many tabs (12+) were open, or after a Broker restart.
+- Fixed a Mobile tab losing its device user agent after a viewer reload or a Broker restart.
+- Esc now exits a page's fullscreen, like in Chrome.
+- "+" now switches to the new tab and scrolls it into view in the sidebar.
+- Sharper text in Mobile mode, and a toolbar that moves the device controls into the menu when narrow.
+
+### v0.1.0
+
+- First release.
+
 ## License
 
 - **Source code:** MIT. See `LICENSE` (CefGlue, Xilium/OutSystems) and the `LICENSE` file in each project folder.
 - **Prebuilt components in `lib/`:** free for personal and commercial use, binary only. See `LICENSE-BINARY.txt`.
-- **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264, SQLite) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.
+- **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264, SQLite, LAME) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.

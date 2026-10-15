@@ -49,7 +49,56 @@ namespace Xilium.CefGlue.Broker
             }));
 
             app.MapGet("/tenant-status", HandleTenantStatus);
+            app.MapGet("/recording/{keyId}/{id}", HandleRecordingDownload);
             app.MapPost("/tenant-release", (Delegate)HandleTenantRelease);
+        }
+
+        private static readonly System.Net.Http.HttpClient RecordingHttp = new System.Net.Http.HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+
+        private static async Task HandleRecordingDownload(HttpContext context, string keyId, string id)
+        {
+            if (!IsKeyIdShaped(keyId) || string.IsNullOrEmpty(id) || id.Length > 64 || !id.All(char.IsAsciiLetterOrDigit)
+                || !Program.Registry.TryGet(keyId, out var record))
+            {
+                context.Response.StatusCode = 404;
+                return;
+            }
+
+            try
+            {
+                using var response = await RecordingHttp.GetAsync($"http://{record.Address}/recordings/{id}",
+                    System.Net.Http.HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                if (!response.IsSuccessStatusCode)
+                {
+                    context.Response.StatusCode = (int)response.StatusCode;
+                    return;
+                }
+
+                context.Response.ContentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+                if (response.Content.Headers.ContentLength is { } length)
+                {
+                    context.Response.ContentLength = length;
+                }
+                if (response.Content.Headers.ContentDisposition is { } disposition)
+                {
+                    context.Response.Headers["Content-Disposition"] = disposition.ToString();
+                }
+                context.Response.Headers["Cache-Control"] = "no-store";
+
+                await using var body = await response.Content.ReadAsStreamAsync(context.RequestAborted);
+                await body.CopyToAsync(context.Response.Body, 1 << 16, context.RequestAborted);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (System.Net.Http.HttpRequestException ex)
+            {
+                Console.WriteLine($"[Broker] Recording download for tenant '{keyId}' failed: {ex.Message}");
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.StatusCode = 502;
+                }
+            }
         }
 
         private static bool IsKeyIdShaped(string keyId) =>
@@ -222,6 +271,11 @@ namespace Xilium.CefGlue.Broker
             var clientSocket = await context.WebSockets.AcceptWebSocketAsync();
 
             using var workerSocket = new ClientWebSocket();
+            var viewerIp = ClientIpFrom(context);
+            if (!string.IsNullOrEmpty(viewerIp))
+            {
+                workerSocket.Options.SetRequestHeader("X-CefGlue-Viewer-Ip", viewerIp);
+            }
 
             try
             {
@@ -297,6 +351,9 @@ namespace Xilium.CefGlue.Broker
             int.TryParse(Environment.GetEnvironmentVariable("CEFGLUE_ABANDON_GRACE_SECONDS"), out var s) && s > 0 ? s : 900;
 
         private static void NoteClient(HttpContext context, string keyId)
+            => WorkerManifest.NoteClient(keyId, ClientIpFrom(context), ClientOsFrom(context.Request.Headers));
+
+        private static string ClientIpFrom(HttpContext context)
         {
             var remote = context.Connection.RemoteIpAddress;
             if (remote != null && remote.IsIPv4MappedToIPv6)
@@ -312,7 +369,7 @@ namespace Xilium.CefGlue.Broker
                 ip = forwarded.ToString().Split(',')[0].Trim();
             }
 
-            WorkerManifest.NoteClient(keyId, ip, ClientOsFrom(context.Request.Headers));
+            return ip;
         }
 
         internal static string ClientOsFrom(IHeaderDictionary headers)

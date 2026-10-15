@@ -30,6 +30,9 @@ namespace Xilium.CefGlue.Common
         public Action<string, Action> WithErrorHandling { get; }
         public Action<string, Exception> HandleException { get; }
         public Func<bool> IsFullscreen { get; }
+
+        public Func<bool> IsVisible { get; init; } = () => true;
+
         public ILogger Logger { get; }
     }
 }

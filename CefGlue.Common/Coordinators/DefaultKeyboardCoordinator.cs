@@ -47,7 +47,10 @@ namespace Xilium.CefGlue.Common.Coordinators
             handled = _handled;
         }
 
-        public virtual void HandleImeComposition(string text, int cursorPosition)
+        public virtual void HandleImeComposition(string text, int cursorPosition) =>
+            HandleImeComposition(text, cursorPosition, null);
+
+        public virtual void HandleImeComposition(string text, int cursorPosition, Xilium.CefGlue.Common.Platform.ImeCompositionClause[] clauses)
         {
             Context.WithErrorHandling(nameof(HandleImeComposition), () =>
             {
@@ -63,19 +66,43 @@ namespace Xilium.CefGlue.Common.Coordinators
                     return;
                 }
 
-                var underline = new CefCompositionUnderline
+                CefCompositionUnderline[] underlines;
+                if (clauses != null && clauses.Length > 0)
                 {
-                    Range = new CefRange(0, text.Length),
-                    Color = new CefColor(255, 0, 0, 0),
-                    BackgroundColor = new CefColor(0, 0, 0, 0),
-                    Thick = false,
-                    Style = CefCompositionUnderlineStyle.Solid
-                };
+                    underlines = new CefCompositionUnderline[clauses.Length];
+                    for (var i = 0; i < clauses.Length; i++)
+                    {
+                        var c = clauses[i];
+                        underlines[i] = new CefCompositionUnderline
+                        {
+                            Range = new CefRange(c.Start, c.End),
+                            Color = c.ColorArgb == 0
+                                ? new CefColor(255, 0, 0, 0)
+                                : new CefColor(c.ColorArgb),
+                            BackgroundColor = new CefColor(0, 0, 0, 0),
+                            Thick = c.Thick,
+                            Style = c.Style
+                        };
+                    }
+                }
+                else
+                {
+                    underlines = new[]
+                    {
+                        new CefCompositionUnderline
+                        {
+                            Range = new CefRange(0, text.Length),
+                            Color = new CefColor(255, 0, 0, 0),
+                            BackgroundColor = new CefColor(0, 0, 0, 0),
+                            Thick = false,
+                            Style = CefCompositionUnderlineStyle.Solid
+                        }
+                    };
+                }
 
                 browserHost.ImeSetComposition(
                     text,
-                    1,
-                    underline,
+                    underlines,
                     new CefRange(-1, -1),
                     new CefRange(cursorPosition, cursorPosition));
             });

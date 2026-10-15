@@ -12,6 +12,9 @@ namespace Xilium.CefGlue.Common.Coordinators
 
         void HandleImeComposition(string text, int cursorPosition);
 
+        void HandleImeComposition(string text, int cursorPosition, Xilium.CefGlue.Common.Platform.ImeCompositionClause[] clauses)
+            => HandleImeComposition(text, cursorPosition);
+
         void HandleImeCommitText(string text);
     }
 }

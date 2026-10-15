@@ -353,6 +353,29 @@
         }
 
         public void ImeSetComposition(string text,
+            CefCompositionUnderline[] underlines,
+            CefRange replacementRange,
+            CefRange selectionRange)
+        {
+            var count = underlines?.Length ?? 0;
+            var native = new cef_composition_underline_t[count];
+            for (var i = 0; i < count; i++)
+            {
+                native[i] = underlines[i].ToNative();
+            }
+
+            fixed (char* text_ptr = text)
+            fixed (cef_composition_underline_t* underlines_ptr = native)
+            {
+                cef_string_t n_text = new cef_string_t(text_ptr, text != null ? text.Length : 0);
+                cef_range_t n_replacementRange = new cef_range_t(replacementRange.From, replacementRange.To);
+                cef_range_t n_selectionRange = new cef_range_t(selectionRange.From, selectionRange.To);
+
+                cef_browser_host_t.ime_set_composition(_self, &n_text, checked((UIntPtr)count), underlines_ptr, &n_replacementRange, &n_selectionRange);
+            }
+        }
+
+        public void ImeSetComposition(string text,
             int underlinesCount,
             CefCompositionUnderline underlines,
             CefRange replacementRange,

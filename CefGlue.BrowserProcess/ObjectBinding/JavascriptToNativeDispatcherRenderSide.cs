@@ -123,6 +123,8 @@ namespace Xilium.CefGlue.BrowserProcess.ObjectBinding
 
         public void HandleContextCreated(CefV8Context context, bool isMain)
         {
+            JavascriptHelper.InstallGlobalObject(context);
+
             if (isMain)
             {
                 lock (_registrationSyncRoot)
@@ -202,6 +204,11 @@ namespace Xilium.CefGlue.BrowserProcess.ObjectBinding
             {
                 if (_registeredObjects.Remove(objName))
                 {
+                    if (_pendingBoundQueryTasks.TryRemove(objName, out var taskSource))
+                    {
+                        taskSource.TrySetResult(false);
+                    }
+
                     var global = context.GetGlobal();
                     global.DeleteValue(objName);
                 }
