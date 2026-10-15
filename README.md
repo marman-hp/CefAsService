@@ -59,19 +59,19 @@ first-run prompt.
 
 Requirements: **Windows x64**, **.NET 10 SDK**.
 
-CEF version: **147.0.14+g76d2442+chromium-147.0.7727.138** (Chromium 147), Windows 64-bit *minimal* distribution.
+CEF version: **154.0.33+ga03e714+chromium-154.0.8037.94** (Chromium 154), Windows 64-bit *minimal* distribution.
 
 `get-cef.ps1` downloads it for you automatically. To download it manually, get:
 
-[cef_binary_147.0.14+g76d2442+chromium-147.0.7727.138_windows64_minimal.tar.bz2](https://cef-builds.spotifycdn.com/cef_binary_147.0.14%2Bg76d2442%2Bchromium-147.0.7727.138_windows64_minimal.tar.bz2)
+[cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2](https://cef-builds.spotifycdn.com/cef_binary_154.0.33%2Bga03e714%2Bchromium-154.0.8037.94_windows64_minimal.tar.bz2)
 
-The archive is about 150 MB. All CEF builds are available at
+The archive is about 165 MB. All CEF builds are available at
 [cef-builds.spotifycdn.com](https://cef-builds.spotifycdn.com/index.html).
 
 Then pass the downloaded archive to `get-cef.ps1`:
 
 ```powershell
-.\get-cef.ps1 -FromArchive "C:\path\to\cef_binary_147.0.14+g76d2442+chromium-147.0.7727.138_windows64_minimal.tar.bz2"
+.\get-cef.ps1 -FromArchive "C:\path\to\cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2"
 ```
 
 The archive must be **exactly this version**, because CefGlue's bindings are generated for this CEF version.

@@ -87,7 +87,7 @@ if ($FromArchive) {
     }
     $archive = (Resolve-Path $FromArchive).Path
 } elseif (-not (Test-Path $archive)) {
-    Write-Host "Downloading $url (about 150 MB)..."
+    Write-Host "Downloading $url (about 165 MB)..."
     Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
 }
 
