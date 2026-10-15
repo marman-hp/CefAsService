@@ -31,7 +31,9 @@ and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Ad
 
 ![CEF As Service](cover.png)
 
-1. Download the latest zip from **Releases** (CEF included) and extract it to a folder you can write to, e.g. `C:\CefAsService` (not `C:\Program Files`, see [Running on Windows](#running-on-windows)).
+▶ **[Watch the setup video](https://www.youtube.com/watch?v=_qDP13IAnvg)**
+
+1. Download the latest zip from [**Releases**](https://github.com/marman-hp/CefAsService/releases) (CEF included) and extract it to a folder you can write to, e.g. `C:\CefAsService` (not `C:\Program Files`, see [Running on Windows](#running-on-windows)).
 2. Run `Admin\Xilium.CefGlue.Broker.Admin.exe`.
 3. Open **http://localhost:57402**, create the admin password and press **Start**.
 4. Clients open **`https://<host>:57443/broker`**. On a LAN you'll see a one-time warning for the self-signed certificate.
