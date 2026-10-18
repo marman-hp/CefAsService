@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" font-family="Segoe UI, Inter, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a94a3"/></marker>
+  </defs>
+  <rect width="960" height="400" rx="14" fill="#0a0a0a"/>
+  <text x="32" y="44" fill="#e5e5e5" font-size="20" font-weight="600">What happens when the viewer leaves</text>
+  <text x="32" y="68" fill="#8a94a3" font-size="13">Both times are set in Admin &gt; Session &amp; Cleanup.</text>
+
+  <!-- Tenant timeline -->
+  <text x="32" y="112" fill="#e5e5e5" font-size="15" font-weight="600">Tenant</text>
+  <rect x="32" y="128" width="190" height="70" rx="10" fill="#171717" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="50" y="156" fill="#e5e5e5" font-size="13.5" font-weight="600">Viewer connected</text>
+  <text x="50" y="178" fill="#a3a3a3" font-size="12">worker running</text>
+  <path d="M224 163 L270 163" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="272" y="128" width="190" height="70" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="290" y="156" fill="#e5e5e5" font-size="13.5" font-weight="600">Viewer gone</text>
+  <text x="290" y="178" fill="#a3a3a3" font-size="12">worker keeps running</text>
+  <path d="M464 163 L510 163" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="440" y="120" fill="#3b82f6" font-size="12">Session Timeout</text>
+  <rect x="512" y="128" width="190" height="70" rx="10" fill="#171717" stroke="#eab308"/>
+  <text x="530" y="156" fill="#e5e5e5" font-size="13.5" font-weight="600">Sleeping</text>
+  <text x="530" y="178" fill="#a3a3a3" font-size="12">tabs + logins kept on disk</text>
+  <path d="M704 163 L750 163" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="696" y="120" fill="#3b82f6" font-size="12">Manifest TTL</text>
+  <rect x="752" y="128" width="176" height="70" rx="10" fill="#171717" stroke="#ef4444"/>
+  <text x="770" y="156" fill="#e5e5e5" font-size="13.5" font-weight="600">Deleted</text>
+  <text x="770" y="178" fill="#a3a3a3" font-size="12">tabs, logins, cache</text>
+  <text x="272" y="222" fill="#a3a3a3" font-size="12">Reopen while sleeping: the page offers to restore the previous tabs, still logged in.</text>
+
+  <!-- Context timeline -->
+  <text x="32" y="270" fill="#e5e5e5" font-size="15" font-weight="600">Context (per-session isolation)</text>
+  <rect x="32" y="286" width="190" height="70" rx="10" fill="#171717" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="50" y="314" fill="#e5e5e5" font-size="13.5" font-weight="600">Tabs open</text>
+  <text x="50" y="336" fill="#a3a3a3" font-size="12">parent + child pages</text>
+  <path d="M224 321 L270 321" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="272" y="286" width="190" height="70" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="290" y="314" fill="#e5e5e5" font-size="13.5" font-weight="600">Last tab closed</text>
+  <text x="290" y="336" fill="#a3a3a3" font-size="12">context released</text>
+  <path d="M464 321 L510 321" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="440" y="278" fill="#3b82f6" font-size="12">Manifest TTL</text>
+  <rect x="512" y="286" width="190" height="70" rx="10" fill="#171717" stroke="#ef4444"/>
+  <text x="530" y="314" fill="#e5e5e5" font-size="13.5" font-weight="600">Folder deleted</text>
+  <text x="530" y="336" fill="#a3a3a3" font-size="12">its number is free again</text>
+  <text x="730" y="314" fill="#a3a3a3" font-size="12">Closed by accident? Its</text>
+  <text x="730" y="332" fill="#a3a3a3" font-size="12">logins survive until the TTL.</text>
+</svg>

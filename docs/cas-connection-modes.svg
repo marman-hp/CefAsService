@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" font-family="Segoe UI, Inter, Arial, sans-serif">
+  <defs>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3b82f6"/></marker>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a94a3"/></marker>
+  </defs>
+  <rect width="960" height="420" rx="14" fill="#0a0a0a"/>
+  <text x="32" y="44" fill="#e5e5e5" font-size="20" font-weight="600">Connection mode: which ports the viewer uses</text>
+  <text x="32" y="68" fill="#8a94a3" font-size="13">The viewer always opens the page on the Broker; only the stream's path differs.</text>
+
+  <!-- Relay -->
+  <rect x="32" y="92" width="430" height="300" rx="12" fill="#111111" stroke="#262626"/>
+  <text x="52" y="122" fill="#e5e5e5" font-size="16" font-weight="600">Relay (default)</text>
+  <text x="52" y="144" fill="#a3a3a3" font-size="12.5">Everything goes through the Broker.</text>
+  <rect x="52" y="180" width="100" height="90" rx="10" fill="#171717" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="76" y="230" fill="#e5e5e5" font-size="14" font-weight="600">Viewer</text>
+  <rect x="200" y="180" width="110" height="90" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="222" y="222" fill="#e5e5e5" font-size="14" font-weight="600">Broker</text>
+  <text x="222" y="242" fill="#3b82f6" font-size="12">:57443</text>
+  <rect x="352" y="180" width="94" height="90" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="370" y="230" fill="#e5e5e5" font-size="14" font-weight="600">Worker</text>
+  <path d="M154 225 L198 225" stroke="#3b82f6" stroke-width="1.8" marker-start="url(#b)" marker-end="url(#b)"/>
+  <path d="M312 225 L350 225" stroke="#8a94a3" stroke-width="1.6" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="300" y="290" fill="#737373" font-size="11.5">same machine (loopback)</text>
+  <text x="52" y="324" fill="#a3a3a3" font-size="12.5">Open one port: 57443. Easiest for a VPS or a</text>
+  <text x="52" y="344" fill="#a3a3a3" font-size="12.5">reverse proxy. The Broker carries all the traffic.</text>
+
+  <!-- Port -->
+  <rect x="498" y="92" width="430" height="300" rx="12" fill="#111111" stroke="#262626"/>
+  <text x="518" y="122" fill="#e5e5e5" font-size="16" font-weight="600">Port mode (--port-mode)</text>
+  <text x="518" y="144" fill="#a3a3a3" font-size="12.5">The stream goes straight to the worker.</text>
+  <rect x="518" y="180" width="100" height="90" rx="10" fill="#171717" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="542" y="230" fill="#e5e5e5" font-size="14" font-weight="600">Viewer</text>
+  <rect x="680" y="160" width="110" height="64" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="702" y="188" fill="#e5e5e5" font-size="14" font-weight="600">Broker</text>
+  <text x="702" y="208" fill="#8a94a3" font-size="12">:57443 page</text>
+  <rect x="680" y="246" width="110" height="64" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="702" y="274" fill="#e5e5e5" font-size="14" font-weight="600">Worker</text>
+  <text x="702" y="294" fill="#3b82f6" font-size="12">its own port</text>
+  <path d="M620 210 L678 194" stroke="#8a94a3" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M620 244 L678 270" stroke="#3b82f6" stroke-width="1.8" marker-start="url(#b)" marker-end="url(#b)"/>
+  <text x="518" y="334" fill="#a3a3a3" font-size="12.5">Lowest latency on a LAN. Also open the worker ports</text>
+  <text x="518" y="354" fill="#a3a3a3" font-size="12.5">(fixed range: CEFGLUE_WORKER_PORT_RANGE_START / _END).</text>
+</svg>

@@ -1,0 +1,139 @@
+<script>
+    window.CefGlueSessionRestore = (function () {
+        function readEntry(name) {
+            try {
+                var raw = localStorage.getItem(name);
+                if (!raw) { return null; }
+                var parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed.value !== 'string' || typeof parsed.expiresAt !== 'number') { return null; }
+                return { value: parsed.value, expired: Date.now() > parsed.expiresAt };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function write(name, value, maxAgeSeconds) {
+            try {
+                localStorage.setItem(name, JSON.stringify({ value: value, expiresAt: Date.now() + maxAgeSeconds * 1000 }));
+            } catch (e) {
+            }
+        }
+
+        function dialog(titleText, bodyText, buttons) {
+            var overlay = document.createElement('div');
+            overlay.setAttribute('role', 'alertdialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.setAttribute('aria-labelledby', 'sessionDialogTitle');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;' +
+                'padding:16px;background:rgba(8,10,14,0.78);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;';
+
+            var card = document.createElement('div');
+            card.style.cssText = 'max-width:440px;width:100%;box-sizing:border-box;background:#1c2129;color:#e6e9ee;' +
+                'border:1px solid #2a323d;border-radius:12px;padding:22px 24px;box-shadow:0 12px 40px rgba(0,0,0,0.5);';
+
+            var title = document.createElement('div');
+            title.id = 'sessionDialogTitle';
+            title.style.cssText = 'font-size:17px;font-weight:600;margin-bottom:8px;';
+            title.textContent = titleText;
+
+            var body = document.createElement('p');
+            body.style.cssText = 'margin:0 0 18px;color:#8b96a3;';
+            body.textContent = bodyText;
+
+            var actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;';
+
+            var primaryButton = null;
+            buttons.forEach(function (spec) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.textContent = spec.label;
+                b.style.cssText = spec.primary
+                    ? 'padding:9px 16px;border:0;border-radius:6px;background:#e0975a;color:#1c1210;font-weight:600;font-size:15px;cursor:pointer;'
+                    : 'padding:9px 16px;border:1px solid #2a323d;border-radius:6px;background:transparent;color:#e6e9ee;font-size:15px;cursor:pointer;';
+                b.addEventListener('click', function () {
+                    overlay.remove();
+                    spec.onClick();
+                });
+                actions.appendChild(b);
+                if (spec.primary) { primaryButton = b; }
+            });
+
+            card.appendChild(title);
+            card.appendChild(body);
+            card.appendChild(actions);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+            if (primaryButton) { primaryButton.focus(); }
+        }
+
+        function askUser(sessions, sleeping) {
+            return new Promise(function (resolve) {
+                dialog(
+                    sleeping ? 'Your previous session is still saved' : 'Your previous session is still running',
+                    (sessions === 1 ? '1 open tab' : sessions + ' open tabs') +
+                        '. Restore it, or close it and start a new session? Starting new removes the previous session’s tabs and logins.',
+                    [
+                        { label: 'Start new session', primary: false, onClick: function () { resolve('new'); } },
+                        { label: 'Restore session', primary: true, onClick: function () { resolve('restore'); } },
+                    ]);
+            });
+        }
+
+        var slidingStarted = false;
+
+        return {
+            resolveStoredKeyId: function (name, maxAgeSeconds) {
+                var entry = readEntry(name);
+                if (!entry) { return Promise.resolve(null); }
+                if (!entry.expired) { return Promise.resolve(entry.value); }
+
+                return fetch('/tenant-status?keyId=' + encodeURIComponent(entry.value))
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .catch(function () { return null; })
+                    .then(function (status) {
+                        if (!status || !status.alive) {
+                            try { localStorage.removeItem(name); } catch (e) { }
+                            return null;
+                        }
+
+                        return askUser(status.sessions, !!status.sleeping).then(function (choice) {
+                            if (choice === 'restore') {
+                                write(name, entry.value, maxAgeSeconds);
+                                return entry.value;
+                            }
+
+                            try { localStorage.removeItem(name); } catch (e) { }
+                            return fetch('/tenant-release', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ keyId: entry.value }),
+                            }).catch(function () { }).then(function () { return null; });
+                        });
+                    });
+            },
+
+            showEnded: function (name) {
+                try { localStorage.removeItem(name); } catch (e) { }
+                dialog(
+                    'This session has ended',
+                    'It was closed by the administrator, or from another tab. Its tabs and logins were removed.',
+                    [{ label: 'Start new session', primary: true, onClick: function () { window.location.reload(); } }]);
+                return new Promise(function () { });
+            },
+
+            startSlidingRefresh: function (name, maxAgeSeconds, getKeyId) {
+                if (slidingStarted) { return; }
+                slidingStarted = true;
+                var refresh = function () {
+                    var keyId = getKeyId();
+                    var maxAge = typeof maxAgeSeconds === 'function' ? maxAgeSeconds() : maxAgeSeconds;
+                    if (keyId) { write(name, keyId, maxAge); }
+                };
+                setInterval(refresh, 60000);
+                document.addEventListener('visibilitychange', refresh);
+                window.addEventListener('pagehide', refresh);
+            },
+        };
+    })();
+</script>

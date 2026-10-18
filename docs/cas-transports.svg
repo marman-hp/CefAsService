@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 440" width="960" height="440" font-family="Segoe UI, Inter, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a94a3"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3b82f6"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22c55e"/></marker>
+  </defs>
+  <rect width="960" height="440" rx="14" fill="#0a0a0a"/>
+  <text x="32" y="44" fill="#e5e5e5" font-size="20" font-weight="600">Transports: how the stream reaches the viewer</text>
+  <text x="32" y="68" fill="#8a94a3" font-size="13">Chosen when the Broker starts (--use-webrtc), the same for every tenant.</text>
+
+  <!-- WebSocket -->
+  <rect x="32" y="92" width="430" height="322" rx="12" fill="#111111" stroke="#262626"/>
+  <text x="52" y="122" fill="#e5e5e5" font-size="16" font-weight="600">WebSocket (default)</text>
+  <text x="52" y="144" fill="#a3a3a3" font-size="12.5">One connection carries everything.</text>
+  <rect x="52" y="170" width="110" height="200" rx="10" fill="#171717" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="74" y="276" fill="#e5e5e5" font-size="14" font-weight="600">Viewer</text>
+  <rect x="332" y="170" width="110" height="200" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="354" y="276" fill="#e5e5e5" font-size="14" font-weight="600">Worker</text>
+  <rect x="176" y="182" width="142" height="176" rx="8" fill="#141414" stroke="#262626" stroke-dasharray="4 4"/>
+  <text x="190" y="200" fill="#737373" font-size="11">one WebSocket (TCP)</text>
+  <path d="M330 226 L166 226" stroke="#3b82f6" stroke-width="1.8" marker-end="url(#b)"/>
+  <text x="188" y="218" fill="#3b82f6" font-size="12">video (H.264 or JPG)</text>
+  <path d="M330 272 L166 272" stroke="#3b82f6" stroke-width="1.8" marker-end="url(#b)"/>
+  <text x="188" y="264" fill="#3b82f6" font-size="12">audio (Opus)</text>
+  <path d="M166 318 L330 318" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="188" y="310" fill="#a3a3a3" font-size="12">input + commands</text>
+  <text x="52" y="398" fill="#a3a3a3" font-size="12.5">Simple, works through any proxy that passes WebSockets.</text>
+
+  <!-- WebRTC -->
+  <rect x="498" y="92" width="430" height="322" rx="12" fill="#111111" stroke="#262626"/>
+  <text x="518" y="122" fill="#e5e5e5" font-size="16" font-weight="600">WebRTC (--use-webrtc)</text>
+  <text x="518" y="144" fill="#a3a3a3" font-size="12.5">Media as real-time tracks, usually over UDP.</text>
+  <rect x="518" y="170" width="110" height="200" rx="10" fill="#171717" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="540" y="276" fill="#e5e5e5" font-size="14" font-weight="600">Viewer</text>
+  <rect x="798" y="170" width="110" height="200" rx="10" fill="#171717" stroke="#404040"/>
+  <text x="820" y="276" fill="#e5e5e5" font-size="14" font-weight="600">Worker</text>
+  <path d="M632 204 L796 204" stroke="#8a94a3" stroke-width="1.4" stroke-dasharray="5 4" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="646" y="196" fill="#a3a3a3" font-size="12">signaling (WebSocket)</text>
+  <path d="M796 244 L632 244" stroke="#3b82f6" stroke-width="1.8" marker-end="url(#b)"/>
+  <text x="646" y="236" fill="#3b82f6" font-size="12">video track</text>
+  <path d="M796 284 L632 284" stroke="#3b82f6" stroke-width="1.8" marker-end="url(#b)"/>
+  <text x="646" y="276" fill="#3b82f6" font-size="12">audio track (Opus)</text>
+  <path d="M632 324 L796 324" stroke="#8a94a3" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="646" y="316" fill="#a3a3a3" font-size="12">data channel: input</text>
+  <rect x="640" y="340" width="150" height="24" rx="6" fill="#141414" stroke="#22c55e"/>
+  <text x="652" y="357" fill="#22c55e" font-size="11.5">TURN relays across NAT</text>
+  <text x="518" y="398" fill="#a3a3a3" font-size="12.5">Lower latency; the viewer shows the route (LAN/NAT/TURN).</text>
+</svg>

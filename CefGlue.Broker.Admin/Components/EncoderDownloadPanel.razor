@@ -1,0 +1,82 @@
+@{ var verified = Manifest.IsInstalled && EncoderDownloader.IsInstalledFileVerified(Manifest); }
+<div class="download-panel @(!Manifest.IsInstalled ? "missing" : verified ? "installed" : "unrecognized")">
+    <div class="download-main">
+        <div class="download-attribution">@Manifest.Download.Attribution</div>
+        <div class="download-status">
+            @if (Manifest.IsInstalled && verified)
+            {
+                <span class="download-dot ok"></span>
+                <span>Installed - @Manifest.Download.File, @Manifest.Download.Provider's build, verified (SHA-256 matches).</span>
+            }
+            else if (Manifest.IsInstalled)
+            {
+                <span class="download-dot bad"></span>
+                <span>@Manifest.Download.File is present but is not the expected @Manifest.Download.Provider build (SHA-256 differs) - a different version may fail to load. Replace it with @(Manifest.Download.Provider)'s, or remove it.</span>
+            }
+            else
+            {
+                <span class="download-dot"></span>
+                <span>Not installed. It is downloaded to this machine directly from @Manifest.Download.Provider, not shipped with CefAsService.</span>
+            }
+        </div>
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="download-message @(_ok ? "" : "error")">@_message</div>
+        }
+        @if (!string.IsNullOrEmpty(Manifest.Download.LicenseUrl))
+        {
+            <a class="download-license" href="@Manifest.Download.LicenseUrl" target="_blank" rel="noopener noreferrer">@Manifest.Download.Provider binary license</a>
+        }
+    </div>
+
+    <div class="download-actions">
+        @if (Manifest.IsInstalled && !verified)
+        {
+            <button type="button" class="download-button" disabled="@_busy" @onclick="InstallAsync">
+                @(_busy ? "Downloading..." : $"Replace with {Manifest.Download.Provider}'s")
+            </button>
+        }
+        @if (Manifest.IsInstalled)
+        {
+            <button type="button" class="download-button secondary" disabled="@_busy" @onclick="RemoveAsync">Remove</button>
+        }
+        else
+        {
+            <button type="button" class="download-button" disabled="@_busy" @onclick="InstallAsync">
+                @(_busy ? "Downloading..." : $"Download from {Manifest.Download.Provider}")
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EncoderManifest Manifest { get; set; }
+
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _busy;
+    private bool _ok;
+    private string _message;
+
+    private async Task InstallAsync()
+    {
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            (_ok, _message) = await EncoderDownloader.InstallAsync(Manifest);
+        }
+        finally
+        {
+            _busy = false;
+        }
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RemoveAsync()
+    {
+        (_ok, _message) = EncoderDownloader.Remove(Manifest);
+        await OnChanged.InvokeAsync();
+    }
+}

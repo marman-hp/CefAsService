@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DotnetVersion)</TargetFramework>
+    <AssemblyName>Xilium.CefGlue.Headless.Service</AssemblyName>
+    <RootNamespace>Xilium.CefGlue.Headless.Service</RootNamespace>
+    <Nullable>disable</Nullable>
+    <Product>Xilium.CefGlue.Headless.Service</Product>
+    <AssemblyTitle>Xilium.CefGlue.Headless.Service</AssemblyTitle>
+    <Authors>Marman-HP</Authors>
+    <Copyright>Copyright © 2026 Marman-HP. Portions Copyright © XiliumHQ 2021, OutSystems 2021.</Copyright>
+    <RepositoryUrl>https://github.com/marman-hp/CefAsService</RepositoryUrl>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CasVersion Condition="'$(CasVersion)' == ''">dev</CasVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="CasVersion" Value="$(CasVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\CefGlue.Broker\Storage\Sqlite3Native.cs" Link="Storage\Sqlite3Native.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\SqliteDb.cs" Link="Storage\SqliteDb.cs" />
+    <Compile Include="..\CefGlue.Broker\Storage\BrokerDb.cs" Link="Storage\BrokerDb.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\CefGlue.Broker\native\win-x64\sqlite3.dll" Link="sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Import Project="$(ProjectDir)..\CefGlue.CopyLocal.props" />
+
+  <ItemGroup>
+    <ProjectReference Include="..\CefGlue.Headless\CefGlue.Headless.csproj" />
+    <ProjectReference Include="..\CefGlue.Headless.Server\CefGlue.Headless.Server.csproj" />
+    <ProjectReference Include="..\CefGlue\CefGlue.csproj" />
+    <ProjectReference Include="..\CefGlue.Common\CefGlue.Common.csproj" />
+    <ProjectReference Include="..\CefGlue.Common.Shared\CefGlue.Common.Shared.csproj" />
+
+    <ProjectReference Include="..\CefGlue.Common.Encoder\CefGlue.Common.Encoder.csproj" />
+
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\cef\runtimes\win-x64\native\**">
+      <Link>runtimes\win-x64\native\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
+  <Import Project="EncoderPlugins.props" />
+  <Import Project="..\lib\BinaryComponents.props" />
+
+  <Import Project="$(ProjectDir)..\CefGlue.Common\build\CefGlue.Common.targets" />
+
+  <ItemGroup Condition="Exists('..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll')">
+    <None Include="..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll" Link="cefrec.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.dll" Link="libmp3lame.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.dll')" />
+    <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt" Link="libmp3lame.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt')" />
+  </ItemGroup>
+
+</Project>
