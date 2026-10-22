@@ -352,7 +352,7 @@ namespace Xilium.CefGlue.Broker
 
             Console.WriteLine($"CefGlue.Broker listening on http://0.0.0.0:{port} (worker: ws://.../worker, client: POST /assign)");
             Console.WriteLine(httpsCert != null
-                ? $"HTTPS (self-signed, LAN-testing only - browser will show a cert warning once): https://0.0.0.0:{httpsPort}/broker.html"
+                ? $"HTTPS (self-signed, LAN-testing only - browser will show a cert warning once): https://0.0.0.0:{httpsPort}/broker"
                 : "HTTPS (self-signed): disabled via --no-selfsigned-https - expecting a reverse proxy (e.g. Caddy/Nginx with a real cert) in front of this process.");
             Console.WriteLine($"Control channel: tcp://127.0.0.1:{adminPort}/ (loopback-only, plain TCP/NDJSON, not HTTP) - run CefGlue.Broker.Admin for a live web UI over this.");
             Console.WriteLine($"Default client connection mode: {defaultMode} - set CEFGLUE_BROKER_DEFAULT_MODE=port/relay to switch (restart required); a client's own ?mode= URL override always wins over this.");

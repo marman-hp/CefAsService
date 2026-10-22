@@ -1,6 +1,6 @@
 # CEF As Service
 
-**Chromium as a service.** Run real Chromium (CEF) browsers on a Windows server (Linux: [preview](#linux-preview)) and stream them to any
+**Chromium as a service.** Run real Chromium (CEF) browsers on a Windows or Linux server and stream them to any
 web browser. A **Broker** gives each client its own headless browser worker
 and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Admin** web app manages it all.
 
@@ -128,15 +128,44 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 
 ## Linux (preview)
 
-The worker, Broker and Admin build for `linux-x64` from this source (`dotnet build <project> -c Release -p:Platform=x64 -r linux-x64`, .NET 10 SDK; CI checks it on Ubuntu 22.04). It is a **preview**, with these limits:
+Worker, Broker and Admin run on `linux-x64`. The Linux native components (WebRTC, Opus audio, session recorder) ship prebuilt in `lib/`, like the Windows ones. It is a **preview**:
 
-- **There is no Linux release download yet**, and `get-cef.ps1` is Windows-only. You need CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux (linux64 *minimal*, exactly this version from [cef-builds.spotifycdn.com](https://cef-builds.spotifycdn.com/index.html)) placed next to the worker.
-- **The repository does not include the Linux native components** (WebRTC, Opus audio, session recorder). A Linux build from this source therefore has the **WebSocket** transport only: no WebRTC, no audio, no recording.
+- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.3.1` writes `artifacts/CefAsService-v0.3.1-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). There is no ready-made Linux download yet. The natives are built for glibc 2.35 or newer.
+- **Run it:** the package's `README.txt` has the steps: ASP.NET Core 10 runtime, a few system libraries, `./setup-cef.sh` (downloads CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux, linux64 *minimal*), then `./run.sh`. `get-cef.ps1` is Windows-only.
+- **Transports and features:** WebSocket and WebRTC, Opus audio and session recording are included.
 - **Video:** JPG frames, or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
-- **Software only:** no GPU encoder. Without X11/Wayland the worker falls back to Chromium's headless backend. We tested on Ubuntu 22.04/24.04 with natives built for glibc 2.35 or newer.
+- **Software only:** no GPU encoder. Without X11/Wayland the worker falls back to Chromium's headless backend.
 - Software encoding is CPU-bound: on a 4-thread laptop CPU, 1080p H.264 reaches roughly 30 fps and 720p is smooth.
 
-A full Linux release (with the native components and a ready-to-run package) is planned.
+### Build from source on Linux
+
+Requirements: Linux x64 with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+), the **.NET 10 SDK**, `bash`, `tar` and internet access (NuGet, and CEF in step 3).
+
+```bash
+git clone https://github.com/marman-hp/CefAsService.git
+cd CefAsService
+./package-linux.sh 0.3.1                       # writes artifacts/CefAsService-v0.3.1-linux-x64.tar.gz (a local build output folder, not part of the repo)
+mkdir ~/cas && tar xzf artifacts/CefAsService-v0.3.1-linux-x64.tar.gz -C ~/cas
+cd ~/cas/cas-linux
+./setup-cef.sh                                  # once: downloads CEF 154 for Linux (~326 MB)
+./run.sh                                        # then open https://localhost:57443/broker
+```
+
+To run the package you also need the ASP.NET Core 10 runtime and a few system libraries; `README.txt` inside the package lists them.
+
+**Faster loop while developing:** rebuild only the project you changed and copy its output over the unpacked package, for example the worker:
+
+```bash
+dotnet build CefGlue.Headless.Service/CefGlue.Headless.Service.csproj -c Release -p:Platform=x64 -r linux-x64 --no-self-contained
+cp CefGlue.Headless.Service/bin/x64/Release/net10.0/linux-x64/Xilium.CefGlue.Headless*.dll ~/cas/cas-linux/Worker/
+```
+
+**Notes**
+
+- The prebuilt components in `lib/` (the `.so` natives for WebRTC, Opus, the recorder and the YUV converter, plus the managed Opus, WebRTC and OpenH264 plugin assemblies) are **binary only** (see `LICENSE-BINARY.txt`). You can rebuild everything else from source, but not these.
+- `get-cef.ps1` is Windows-only. On Linux use the `setup-cef.sh` that ships in the package.
+- `run.sh` expects the package layout (`Admin/`, `Broker/`, `Worker/` side by side), so run the app from an unpacked package, not straight from the source tree.
+- `dotnet build <project> -c Release -p:Platform=x64 -r linux-x64` on its own is a quick compile check; it does not produce a runnable layout.
 
 ## Projects
 
@@ -199,12 +228,13 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 
 ## Release history
 
-### v0.3.0
+### v0.3.1
 
-- Added a **Linux x64 preview**: worker, Broker and Admin build for `linux-x64` (see [Linux (preview)](#linux-preview) for what is and isn't included).
+- Added **Linux x64 support (preview)**: worker, Broker and Admin run on Linux with the WebSocket and WebRTC transports, Opus audio and session recording. The Linux native components ship prebuilt in `lib/`, and `package-linux.sh` builds a ready-to-run package (see [Linux (preview)](#linux-preview)).
 - OpenH264 plugin now downloads per OS (`win-x64`, `linux-x64`).
 - Workers exit with their Broker on Linux, and the overlay info shows the OS.
 - Frame path: pooled, reused frame buffers instead of two large copies per paint. In our 1080p tests the worker used about 25% less CPU on Windows and WSL and almost no garbage collection; on a 4-thread laptop CPU, +4-7% frame rate.
+- Fixed the Broker's startup message printing a viewer address that returned 404 (`/broker.html`); the viewer is at `/broker`.
 - CI: Windows x64 build and a `linux-x64` compile check on every push.
 
 ### v0.2.1
