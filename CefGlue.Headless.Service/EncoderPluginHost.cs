@@ -126,11 +126,18 @@ namespace Xilium.CefGlue.Headless.Service
 
             protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
             {
-                var fileName = unmanagedDllName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? unmanagedDllName : unmanagedDllName + ".dll";
-                var local = Path.Combine(_folder, fileName);
-                if (File.Exists(local))
+                var candidates = OperatingSystem.IsWindows()
+                    ? new[] { unmanagedDllName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? unmanagedDllName : unmanagedDllName + ".dll" }
+                    : unmanagedDllName.EndsWith(".so", StringComparison.Ordinal)
+                        ? new[] { unmanagedDllName }
+                        : new[] { "lib" + unmanagedDllName + ".so", unmanagedDllName + ".so" };
+                foreach (var fileName in candidates)
                 {
-                    return LoadUnmanagedDllFromPath(local);
+                    var local = Path.Combine(_folder, fileName);
+                    if (File.Exists(local))
+                    {
+                        return LoadUnmanagedDllFromPath(local);
+                    }
                 }
 
                 var resolved = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);

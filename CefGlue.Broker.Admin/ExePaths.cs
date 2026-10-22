@@ -5,8 +5,8 @@ namespace Xilium.CefGlue.Broker.Admin
 {
     internal sealed class ExePaths
     {
-        public const string BrokerExeName = "Xilium.CefGlue.Broker.exe";
-        public const string WorkerExeName = "Xilium.CefGlue.Headless.Service.exe";
+        public static readonly string BrokerExeName = OperatingSystem.IsWindows() ? "Xilium.CefGlue.Broker.exe" : "Xilium.CefGlue.Broker";
+        public static readonly string WorkerExeName = OperatingSystem.IsWindows() ? "Xilium.CefGlue.Headless.Service.exe" : "Xilium.CefGlue.Headless.Service";
 
         private readonly AdminSettingsStore _settings;
 

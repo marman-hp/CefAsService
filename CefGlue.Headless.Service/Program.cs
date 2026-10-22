@@ -299,6 +299,52 @@ namespace Xilium.CefGlue.Headless.Service
             {
                 flags.AddRange(gpuFlags);
             }
+
+            if (OperatingSystem.IsLinux())
+            {
+                var ozone = Environment.GetEnvironmentVariable("CEFGLUE_OZONE_PLATFORM");
+                if (string.IsNullOrEmpty(ozone)
+                    && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
+                    && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
+                {
+                    ozone = "headless";
+                }
+
+                if (!string.IsNullOrEmpty(ozone))
+                {
+                    flags.Add(KeyValuePair.Create("ozone-platform", ozone));
+                    Console.WriteLine($"[Program] Linux ozone platform: {ozone}");
+                }
+            }
+
+            if (OperatingSystem.IsLinux() && Environment.GetEnvironmentVariable("CEFGLUE_DISABLE_GPU") == "0")
+            {
+                flags.Add(KeyValuePair.Create("disable-gpu-compositing", ""));
+
+                var waylandSession = string.Equals(Environment.GetEnvironmentVariable("CEFGLUE_OZONE_PLATFORM"), "wayland", StringComparison.OrdinalIgnoreCase)
+                    || (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CEFGLUE_OZONE_PLATFORM"))
+                        && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")));
+                var headlessOzone = string.Equals(Environment.GetEnvironmentVariable("CEFGLUE_OZONE_PLATFORM"), "headless", StringComparison.OrdinalIgnoreCase);
+                if (!waylandSession && !headlessOzone)
+                {
+                    flags.Add(KeyValuePair.Create("disable-accelerated-video-decode", ""));
+                }
+
+                Console.WriteLine($"[Program] GPU on (Linux): software compositing + GPU raster/decode ({(waylandSession ? "Wayland" : "X11")} session).");
+            }
+
+            var extraFlags = Environment.GetEnvironmentVariable("CEFGLUE_CEF_FLAGS");
+            if (!string.IsNullOrWhiteSpace(extraFlags))
+            {
+                foreach (var part in extraFlags.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var separator = part.IndexOf('=');
+                    var name = (separator < 0 ? part : part[..separator]).TrimStart('-');
+                    flags.Add(KeyValuePair.Create(name, separator < 0 ? "" : part[(separator + 1)..]));
+                }
+
+                Console.WriteLine($"[Program] Extra CEF flags (CEFGLUE_CEF_FLAGS): {extraFlags}");
+            }
             var devToolsPort = 0;
             if (Environment.GetEnvironmentVariable("CEFGLUE_DEVTOOLS_ENABLED") == "1")
             {
@@ -394,6 +440,13 @@ namespace Xilium.CefGlue.Headless.Service
                     brokerUrl, TenantId, PageId, $"127.0.0.1:{frameSocketServer.Port}",
                     () => sessions.SessionCount, () => sessions.AllTabUrls);
                 heartbeatClient.Start();
+
+                ParentProcessWatchdog.Start(() =>
+                {
+                    Console.WriteLine("[Program] The Broker process is gone - exiting.");
+                    try { FlushCookies(TimeSpan.FromSeconds(1)); } catch { }
+                    System.Diagnostics.Process.GetCurrentProcess().Kill();
+                });
 
                 var graceSeconds = int.TryParse(Environment.GetEnvironmentVariable("CEFGLUE_ABANDON_GRACE_SECONDS"), out var parsedGrace) ? parsedGrace : 900;
                 var watchdog = new AbandonmentWatchdog(TimeSpan.FromSeconds(graceSeconds), () =>

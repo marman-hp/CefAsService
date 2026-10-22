@@ -18,7 +18,35 @@ namespace Xilium.CefGlue.Broker.Admin
         public List<EncoderSettingDefinition> Settings { get; set; } = new();
         public List<EncoderFixedValue> Fixed { get; set; } = new();
 
-        public EncoderDownload Download { get; set; }
+        public Dictionary<string, EncoderDownload> Downloads { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("download")]
+        public EncoderDownload LegacyDownload { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public EncoderDownload Download
+        {
+            get
+            {
+                var rid = CurrentRuntimeId;
+                if (Downloads != null)
+                {
+                    foreach (var entry in Downloads)
+                    {
+                        if (string.Equals(entry.Key, rid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return entry.Value;
+                        }
+                    }
+                }
+
+                return rid == "win-x64" ? LegacyDownload : null;
+            }
+        }
+
+        public static string CurrentRuntimeId { get; } =
+            (OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "osx" : "unknown")
+            + "-" + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
 
         [System.Text.Json.Serialization.JsonIgnore]
         public string Folder { get; set; }

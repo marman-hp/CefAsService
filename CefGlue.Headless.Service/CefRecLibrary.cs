@@ -40,7 +40,7 @@ namespace Xilium.CefGlue.Headless.Service
             _erase = (delegate* unmanaged[Cdecl]<byte*, byte*, int>)NativeLibrary.GetExport(lib, "rec_log_erase");
         }
 
-        public static CefRecLibrary ForWorker() => Open(System.IO.Path.Combine(AppContext.BaseDirectory, "cefrec.dll"));
+        public static CefRecLibrary ForWorker() => Open(System.IO.Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "cefrec.dll" : "cefrec.so"));
 
         public static CefRecLibrary Open(string dllPath)
         {

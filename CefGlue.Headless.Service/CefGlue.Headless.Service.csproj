@@ -25,10 +25,14 @@
     <Compile Include="..\CefGlue.Broker\Storage\BrokerDb.cs" Link="Storage\BrokerDb.cs" />
   </ItemGroup>
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <None Include="..\CefGlue.Broker\native\win-x64\sqlite3.dll" Link="sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\CefGlue.Broker\native\win-x64\sqlite3.dll" Link="sqlite3.dll" CopyToOutputDirectory="PreserveNewest" Condition="'$(CasTargetWindows)' == 'true'" />
   </ItemGroup>
 
   <Import Project="$(ProjectDir)..\CefGlue.CopyLocal.props" />
+
+  <ItemGroup Condition="'$(CasTargetLinux)' == 'true'">
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CefGlue.Headless\CefGlue.Headless.csproj" />
@@ -54,7 +58,13 @@
 
   <Import Project="$(ProjectDir)..\CefGlue.Common\build\CefGlue.Common.targets" />
 
-  <ItemGroup Condition="Exists('..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll')">
+  <ItemGroup Condition="'$(CasTargetLinux)' == 'true' And Exists('..\CefGlue.Recording.Native\bin\Release\net10.0\linux-x64\native\cefrec.so')">
+    <None Include="..\CefGlue.Recording.Native\bin\Release\net10.0\linux-x64\native\cefrec.so" Link="cefrec.so" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.so" Link="libmp3lame.so" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.so')" />
+    <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt" Link="libmp3lame.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CasTargetWindows)' == 'true' And Exists('..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll')">
     <None Include="..\CefGlue.Recording.Native\bin\Release\net10.0\win-x64\native\cefrec.dll" Link="cefrec.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.dll" Link="libmp3lame.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.dll')" />
     <None Include="..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt" Link="libmp3lame.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" Condition="Exists('..\CefGlue.Recording.Native\lame\libmp3lame.LICENSE.txt')" />

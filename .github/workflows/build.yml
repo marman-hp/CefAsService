@@ -1,0 +1,58 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64 build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # CEF (~165 MB) is downloaded by get-cef.ps1 into .\cef, keyed on the CEF version in Directory.Build.props.
+      - name: Cache CEF runtime
+        id: cef
+        uses: actions/cache@v4
+        with:
+          path: cef
+          key: cef-${{ hashFiles('Directory.Build.props', 'get-cef.ps1') }}
+
+      - name: Download CEF runtime
+        if: steps.cef.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./get-cef.ps1
+
+      - name: Build
+        run: dotnet build CefAsService.sln -c Release -p:Platform=x64 --nologo
+
+  linux-compile:
+    name: Linux x64 compile check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Compile only: the worker/broker/admin must build for linux-x64 (no CEF runtime or tests needed).
+      - name: Build worker, broker and admin
+        run: |
+          for p in CefGlue.Headless.Service CefGlue.Broker CefGlue.Broker.Admin; do
+            dotnet build "$p/$p.csproj" -c Release -p:Platform=x64 -r linux-x64 --no-self-contained --nologo
+          done

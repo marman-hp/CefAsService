@@ -288,6 +288,14 @@ namespace Xilium.CefGlue.Headless
             }
         }
 
+        public void CancelDragIfActive()
+        {
+            if (_isDragActive)
+            {
+                CancelDrag();
+            }
+        }
+
         private void CancelDrag()
         {
             System.Diagnostics.Debug.WriteLine("[HeadlessTarget] CancelDrag (Escape)");

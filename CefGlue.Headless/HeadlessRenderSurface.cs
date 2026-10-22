@@ -19,12 +19,31 @@ namespace Xilium.CefGlue.Headless
         public int Height { get; }
         public CefRectangle[] DirtyRects { get; }
 
+        private int _references = 1;
+        private readonly Action<byte[]> _recycle;
+
         public HeadlessFrame(byte[] buffer, int width, int height, CefRectangle[] dirtyRects)
+            : this(buffer, width, height, dirtyRects, null)
+        {
+        }
+
+        internal HeadlessFrame(byte[] buffer, int width, int height, CefRectangle[] dirtyRects, Action<byte[]> recycle)
         {
             Buffer = buffer;
             Width = width;
             Height = height;
             DirtyRects = dirtyRects;
+            _recycle = recycle;
+        }
+
+        public void Retain() => System.Threading.Interlocked.Increment(ref _references);
+
+        public void Release()
+        {
+            if (System.Threading.Interlocked.Decrement(ref _references) == 0)
+            {
+                _recycle?.Invoke(Buffer);
+            }
         }
     }
 
@@ -52,10 +71,16 @@ namespace Xilium.CefGlue.Headless
 
         public void UpdatePopupFrame(HeadlessFrame frame)
         {
+            frame?.Retain();
+
+            HeadlessFrame previous;
             lock (_popupLock)
             {
+                previous = _popupFrame;
                 _popupFrame = frame;
             }
+
+            previous?.Release();
         }
 
         public void SetPopupRect(int x, int y, int width, int height)
@@ -69,15 +94,20 @@ namespace Xilium.CefGlue.Headless
 
         public void SetPopupVisible(bool visible)
         {
+            HeadlessFrame dropped = null;
+
             lock (_popupLock)
             {
                 _popupVisible = visible;
 
                 if (!visible)
                 {
+                    dropped = _popupFrame;
                     _popupFrame = null;
                 }
             }
+
+            dropped?.Release();
 
             RecompositeAndBroadcast();
         }
@@ -102,9 +132,48 @@ namespace Xilium.CefGlue.Headless
 
         protected override void CreateSurface(int width, int height)
         {
-            _renderedWidth = width;
-            _renderedHeight = height;
-            _persistentBuffer = new byte[width * height * BytesPerPixel];
+            lock (_persistentLock)
+            {
+                _renderedWidth = width;
+                _renderedHeight = height;
+                _persistentBuffer = new byte[width * height * BytesPerPixel];
+                _cleanReady = false;
+            }
+        }
+
+        private readonly object _persistentLock = new object();
+        private bool _cleanReady;
+
+        private readonly System.Collections.Generic.Stack<byte[]> _framePool = new System.Collections.Generic.Stack<byte[]>();
+        private readonly object _framePoolLock = new object();
+        private const int MaxPooledFrames = 6;
+
+        private byte[] RentFrameBuffer(int size)
+        {
+            lock (_framePoolLock)
+            {
+                while (_framePool.Count > 0)
+                {
+                    var pooled = _framePool.Pop();
+                    if (pooled.Length == size)
+                    {
+                        return pooled;
+                    }
+                }
+            }
+
+            return GC.AllocateUninitializedArray<byte>(size);
+        }
+
+        private void ReturnFrameBuffer(byte[] buffer)
+        {
+            lock (_framePoolLock)
+            {
+                if (_framePool.Count < MaxPooledFrames)
+                {
+                    _framePool.Push(buffer);
+                }
+            }
         }
 
         protected override Action BeginSurfaceUpdate()
@@ -113,26 +182,27 @@ namespace Xilium.CefGlue.Headless
 
             return () =>
             {
-                if (!_hasPendingUpdate || _persistentBuffer == null)
+                if (!_hasPendingUpdate)
                 {
                     return;
                 }
 
-                var width = _renderedWidth;
-                var height = _renderedHeight;
-                var clean = (byte[])_persistentBuffer.Clone();
-
-                lock (_cleanBufferLock)
+                _cursorOverlay?.NoteRealFrame();
+                var composed = ComposeFromPersistent(markClean: true);
+                if (composed == null)
                 {
-                    _lastCleanBuffer = clean;
-                    _lastCleanWidth = width;
-                    _lastCleanHeight = height;
+                    return;
                 }
 
-                _cursorOverlay?.NoteRealFrame();
-                var composed = Compose(clean, width, height);
-                FrameReady?.Invoke(composed);
-                EmitRecordingFrame(composed);
+                try
+                {
+                    FrameReady?.Invoke(composed);
+                    EmitRecordingFrame(composed);
+                }
+                finally
+                {
+                    composed.Release();
+                }
             };
         }
 
@@ -151,101 +221,139 @@ namespace Xilium.CefGlue.Headless
                 return;
             }
 
-            var copy = (byte[])composed.Buffer.Clone();
+            var copy = RentFrameBuffer(composed.Buffer.Length);
+            System.Buffer.BlockCopy(composed.Buffer, 0, copy, 0, composed.Buffer.Length);
             overlay.Draw(copy, composed.Width, composed.Height);
-            handler(new HeadlessFrame(copy, composed.Width, composed.Height, composed.DirtyRects));
+
+            var recordingFrame = new HeadlessFrame(copy, composed.Width, composed.Height, composed.DirtyRects, ReturnFrameBuffer);
+            try
+            {
+                handler(recordingFrame);
+            }
+            finally
+            {
+                recordingFrame.Release();
+            }
         }
 
         private void RecompositeForRecording()
         {
-            byte[] cleanBuffer;
-            int width, height;
-
-            lock (_cleanBufferLock)
+            var composed = ComposeFromPersistent(markClean: false);
+            if (composed == null)
             {
-                if (_lastCleanBuffer == null)
+                return;
+            }
+
+            try
+            {
+                EmitRecordingFrame(composed);
+            }
+            finally
+            {
+                composed.Release();
+            }
+        }
+
+        protected override unsafe void UpdateBitmap(IntPtr sourceBuffer, int sourceBufferSize, int stride, CefRectangle updateRegion)
+        {
+            if (sourceBuffer == IntPtr.Zero || sourceBufferSize <= 0 || stride <= 0)
+            {
+                return;
+            }
+
+            lock (_persistentLock)
+            {
+                if (_persistentBuffer == null)
                 {
                     return;
                 }
 
-                cleanBuffer = _lastCleanBuffer;
-                width = _lastCleanWidth;
-                height = _lastCleanHeight;
-            }
+                var x = Math.Max(0, updateRegion.X);
+                var y = Math.Max(0, updateRegion.Y);
+                var width = Math.Min(updateRegion.X + updateRegion.Width, _renderedWidth) - x;
+                var height = Math.Min(updateRegion.Y + updateRegion.Height, _renderedHeight) - y;
 
-            EmitRecordingFrame(Compose(cleanBuffer, width, height));
+                if (width <= 0 || height <= 0)
+                {
+                    return;
+                }
+
+                var rowBytes = width * BytesPerPixel;
+                var destStride = _renderedWidth * BytesPerPixel;
+                var src = (byte*)sourceBuffer;
+
+                fixed (byte* dst = _persistentBuffer)
+                {
+                    if (stride == destStride && x == 0 && width == _renderedWidth)
+                    {
+                        var offset = (long)y * stride;
+                        Buffer.MemoryCopy(src + offset, dst + offset, _persistentBuffer.Length - offset, (long)height * stride);
+                    }
+                    else
+                    {
+                        for (var row = 0; row < height; row++)
+                        {
+                            var srcRow = src + (long)(y + row) * stride + (long)x * BytesPerPixel;
+                            var dstRow = dst + (long)(y + row) * destStride + (long)x * BytesPerPixel;
+                            Buffer.MemoryCopy(srcRow, dstRow, rowBytes, rowBytes);
+                        }
+                    }
+                }
+
+                _hasPendingUpdate = true;
+            }
         }
 
-        private readonly object _cleanBufferLock = new object();
-        private byte[] _lastCleanBuffer;
-        private int _lastCleanWidth;
-        private int _lastCleanHeight;
-
-        protected override unsafe void UpdateBitmap(IntPtr sourceBuffer, int sourceBufferSize, int stride, CefRectangle updateRegion)
+        private HeadlessFrame ComposeFromPersistent(bool markClean)
         {
-            if (sourceBuffer == IntPtr.Zero || sourceBufferSize <= 0 || stride <= 0 || _persistentBuffer == null)
+            byte[] buffer;
+            int width, height;
+
+            lock (_persistentLock)
             {
-                return;
+                if (markClean && _persistentBuffer != null)
+                {
+                    _cleanReady = true;
+                }
+
+                if (!_cleanReady || _persistentBuffer == null)
+                {
+                    return null;
+                }
+
+                width = _renderedWidth;
+                height = _renderedHeight;
+                buffer = RentFrameBuffer(_persistentBuffer.Length);
+                System.Buffer.BlockCopy(_persistentBuffer, 0, buffer, 0, _persistentBuffer.Length);
             }
 
-            var x = Math.Max(0, updateRegion.X);
-            var y = Math.Max(0, updateRegion.Y);
-            var width = Math.Min(updateRegion.X + updateRegion.Width, _renderedWidth) - x;
-            var height = Math.Min(updateRegion.Y + updateRegion.Height, _renderedHeight) - y;
-
-            if (width <= 0 || height <= 0)
-            {
-                return;
-            }
-
-            var rowBytes = width * BytesPerPixel;
-            var destStride = _renderedWidth * BytesPerPixel;
-            var src = (byte*)sourceBuffer;
-
-            for (var row = 0; row < height; row++)
-            {
-                var srcRowPtr = (IntPtr)(src + (long)(y + row) * stride + (long)x * BytesPerPixel);
-                var destOffset = (y + row) * destStride + x * BytesPerPixel;
-                Marshal.Copy(srcRowPtr, _persistentBuffer, destOffset, rowBytes);
-            }
-
-            _hasPendingUpdate = true;
-        }
-
-        private HeadlessFrame Compose(byte[] cleanBuffer, int width, int height)
-        {
-            var composited = (byte[])cleanBuffer.Clone();
-
-            CompositePopup(composited, width, height);
+            CompositePopup(buffer, width, height);
 
             if (ShowOverlayInfo)
             {
-                DrawOverlayInfo(composited, width, height);
+                DrawOverlayInfo(buffer, width, height);
             }
 
-            return new HeadlessFrame(composited, width, height, new[] { new CefRectangle(0, 0, width, height) });
+            return new HeadlessFrame(buffer, width, height, new[] { new CefRectangle(0, 0, width, height) }, ReturnFrameBuffer);
         }
 
         internal void RecompositeAndBroadcast()
         {
-            byte[] cleanBuffer;
-            int width, height;
-
-            lock (_cleanBufferLock)
+            var composed = ComposeFromPersistent(markClean: false);
+            if (composed == null)
             {
-                if (_lastCleanBuffer == null)
-                {
-                    return;
-                }
-
-                cleanBuffer = _lastCleanBuffer;
-                width = _lastCleanWidth;
-                height = _lastCleanHeight;
+                return;
             }
 
-            var composed = Compose(cleanBuffer, width, height);
-            FrameReady?.Invoke(composed);
-            EmitRecordingFrame(composed);
+            try
+            {
+                FrameReady?.Invoke(composed);
+                EmitRecordingFrame(composed);
+            }
+            finally
+            {
+                composed.Release();
+            }
         }
 
         private void CompositePopup(byte[] buffer, int width, int height)
@@ -263,26 +371,35 @@ namespace Xilium.CefGlue.Headless
                 popupFrame = _popupFrame;
                 popupX = _popupX;
                 popupY = _popupY;
+
+                popupFrame.Retain();
             }
 
-            var copyWidth = Math.Min(popupFrame.Width, width - popupX);
-            var copyHeight = Math.Min(popupFrame.Height, height - popupY);
-
-            if (copyWidth <= 0 || copyHeight <= 0 || popupX < 0 || popupY < 0)
+            try
             {
-                return;
+                var copyWidth = Math.Min(popupFrame.Width, width - popupX);
+                var copyHeight = Math.Min(popupFrame.Height, height - popupY);
+
+                if (copyWidth <= 0 || copyHeight <= 0 || popupX < 0 || popupY < 0)
+                {
+                    return;
+                }
+
+                var mainRowBytes = width * BytesPerPixel;
+                var popupRowBytes = popupFrame.Width * BytesPerPixel;
+                var copyRowBytes = copyWidth * BytesPerPixel;
+
+                for (var y = 0; y < copyHeight; y++)
+                {
+                    var srcOffset = y * popupRowBytes;
+                    var dstOffset = (popupY + y) * mainRowBytes + popupX * BytesPerPixel;
+
+                    System.Buffer.BlockCopy(popupFrame.Buffer, srcOffset, buffer, dstOffset, copyRowBytes);
+                }
             }
-
-            var mainRowBytes = width * BytesPerPixel;
-            var popupRowBytes = popupFrame.Width * BytesPerPixel;
-            var copyRowBytes = copyWidth * BytesPerPixel;
-
-            for (var y = 0; y < copyHeight; y++)
+            finally
             {
-                var srcOffset = y * popupRowBytes;
-                var dstOffset = (popupY + y) * mainRowBytes + popupX * BytesPerPixel;
-
-                System.Buffer.BlockCopy(popupFrame.Buffer, srcOffset, buffer, dstOffset, copyRowBytes);
+                popupFrame.Release();
             }
         }
 
@@ -303,6 +420,7 @@ namespace Xilium.CefGlue.Headless
             {
                 $"FPS         : {_fps}",
                 $"CEF version : {OverlayDiagnostics.CefVersion}",
+                $"OS          : {OverlayDiagnostics.OsName}",
                 $"Processor   : {OverlayDiagnostics.ProcessorName}",
                 $"GPU         : {OverlayDiagnostics.GpuName}",
                 $"Mem Usage   : {OverlayDiagnostics.MemoryUsageMb:F1} MB",
@@ -323,24 +441,75 @@ namespace Xilium.CefGlue.Headless
 
             try
             {
-                using var bitmap = new Bitmap(width, height, width * BytesPerPixel, PixelFormat.Format32bppArgb, handle.AddrOfPinnedObject());
-                using var g = Graphics.FromImage(bitmap);
-                using var font = new Font(FontFamily.GenericMonospace, 11, GraphicsUnit.Pixel);
-                using var boxBrush = new SolidBrush(Color.FromArgb(200, 30, 10, 45));
-                using var textBrush = new SolidBrush(Color.FromArgb(235, 235, 235));
-
-                var boxX = width - boxWidth - padding;
-                g.FillRectangle(boxBrush, boxX, padding, boxWidth, boxHeight);
-
-                for (var i = 0; i < lines.Length; i++)
+                if (OperatingSystem.IsWindows())
                 {
-                    g.DrawString(lines[i], font, textBrush, boxX + padding, padding + 2 + i * lineHeight);
+                    DrawOverlayGdi(handle.AddrOfPinnedObject(), width, height, lines, padding, lineHeight, boxWidth, boxHeight);
                 }
+                else
+                {
+                    DrawOverlaySkia(handle.AddrOfPinnedObject(), width, height, lines, padding, lineHeight, boxWidth, boxHeight);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!_overlayFailureLogged)
+                {
+                    _overlayFailureLogged = true;
+                    Console.WriteLine($"[HeadlessRenderSurface] Overlay HUD disabled for this surface: {ex.GetType().Name}: {ex.Message}");
+                }
+
+                ShowOverlayInfo = false;
             }
             finally
             {
                 handle.Free();
             }
+        }
+
+        private bool _overlayFailureLogged;
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private void DrawOverlayGdi(IntPtr pixels, int width, int height, string[] lines, int padding, int lineHeight, int boxWidth, int boxHeight)
+        {
+            using var bitmap = new Bitmap(width, height, width * BytesPerPixel, PixelFormat.Format32bppArgb, pixels);
+            using var g = Graphics.FromImage(bitmap);
+            using var font = new Font(FontFamily.GenericMonospace, 11, GraphicsUnit.Pixel);
+            using var boxBrush = new SolidBrush(Color.FromArgb(200, 30, 10, 45));
+            using var textBrush = new SolidBrush(Color.FromArgb(235, 235, 235));
+
+            var boxX = width - boxWidth - padding;
+            g.FillRectangle(boxBrush, boxX, padding, boxWidth, boxHeight);
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                g.DrawString(lines[i], font, textBrush, boxX + padding, padding + 2 + i * lineHeight);
+            }
+        }
+
+        private void DrawOverlaySkia(IntPtr pixels, int width, int height, string[] lines, int padding, int lineHeight, int boxWidth, int boxHeight)
+        {
+            var info = new SkiaSharp.SKImageInfo(width, height, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul);
+            using var bitmap = new SkiaSharp.SKBitmap();
+            if (!bitmap.InstallPixels(info, pixels, width * BytesPerPixel))
+            {
+                throw new InvalidOperationException("SKBitmap.InstallPixels failed");
+            }
+
+            using var canvas = new SkiaSharp.SKCanvas(bitmap);
+            using var typeface = SkiaSharp.SKTypeface.FromFamilyName("monospace") ?? SkiaSharp.SKTypeface.Default;
+            using var font = new SkiaSharp.SKFont(typeface, 11);
+            using var boxPaint = new SkiaSharp.SKPaint { Color = new SkiaSharp.SKColor(30, 10, 45, 200) };
+            using var textPaint = new SkiaSharp.SKPaint { Color = new SkiaSharp.SKColor(235, 235, 235, 235), IsAntialias = true };
+
+            var boxX = width - boxWidth - padding;
+            canvas.DrawRect(boxX, padding, boxWidth, boxHeight, boxPaint);
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                canvas.DrawText(lines[i], boxX + padding, padding + 2 + i * lineHeight + 11, font, textPaint);
+            }
+
+            canvas.Flush();
         }
 
         private static readonly D3D11 D3D11Api = D3D11.GetApi();

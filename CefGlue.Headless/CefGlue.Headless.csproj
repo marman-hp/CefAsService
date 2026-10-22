@@ -35,6 +35,8 @@
 
     <PackageReference Include="System.Drawing.Common" />
 
+    <PackageReference Include="SkiaSharp" />
+
   </ItemGroup>
 
 </Project>

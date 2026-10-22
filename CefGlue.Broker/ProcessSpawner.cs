@@ -16,7 +16,8 @@ namespace Xilium.CefGlue.Broker
 
         private static string PackagedWorkerExePath()
         {
-            var packaged = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "Worker", "Xilium.CefGlue.Headless.Service.exe"));
+            var workerFile = OperatingSystem.IsWindows() ? "Xilium.CefGlue.Headless.Service.exe" : "Xilium.CefGlue.Headless.Service";
+            var packaged = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "Worker", workerFile));
             return System.IO.File.Exists(packaged) ? packaged : null;
         }
 

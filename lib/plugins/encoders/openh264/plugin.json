@@ -6,13 +6,23 @@
       "displayName": "openh264",
       "library": "H.264 · OpenH264 (ver - 2.6.0)",
       "settingsPrefix": "OPENH264",
-      "download": {
-        "url": "https://ciscobinary.openh264.org/openh264-2.6.0-win64.dll.bz2",
-        "file": "openh264.dll",
-        "sha256": "2076cb5675ec6c1a4c70e7a2a322552f547b6eeed649d6dfcd9e02a543b24691",
-        "provider": "Cisco",
-        "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
-        "licenseUrl": "https://www.openh264.org/BINARY_LICENSE.txt"
+      "downloads": {
+        "win-x64": {
+          "url": "https://ciscobinary.openh264.org/openh264-2.6.0-win64.dll.bz2",
+          "file": "openh264.dll",
+          "sha256": "2076cb5675ec6c1a4c70e7a2a322552f547b6eeed649d6dfcd9e02a543b24691",
+          "provider": "Cisco",
+          "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+          "licenseUrl": "https://www.openh264.org/BINARY_LICENSE.txt"
+        },
+        "linux-x64": {
+          "url": "https://ciscobinary.openh264.org/libopenh264-2.6.0-linux64.8.so.bz2",
+          "file": "libopenh264.so",
+          "sha256": "2f0cde7c6a6abcf5cae76942894ea42897fa677bce4ed6c91a24dd1b041d5f04",
+          "provider": "Cisco",
+          "attribution": "OpenH264 Video Codec provided by Cisco Systems, Inc.",
+          "licenseUrl": "https://www.openh264.org/BINARY_LICENSE.txt"
+        }
       },
       "settings": [
         {

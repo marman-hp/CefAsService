@@ -52,8 +52,9 @@ log in once and every tab is logged in. One account per site per tenant.
 the same site can be open with different accounts side by side. The number badge in the sidebar
 shows which context a tab belongs to.
 
-- Pages a tab opens itself - popups, `target="_blank"` links, *Open link in new tab* - stay in that
-  tab's context and get the same badge. That's what keeps sign-in popups (OAuth) working.
+- Pages a tab opens itself - popups, `target="_blank"` links, *Open link in new tab*, a link dragged
+  onto the sidebar or **+** - stay in that tab's context and get the same badge. That's what keeps
+  sign-in popups (OAuth) working.
 - Only **+** creates a new context.
 
 The mode is fixed while the Broker runs. **Switching modes wipes every tenant's cache and saved

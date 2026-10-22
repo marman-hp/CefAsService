@@ -1019,7 +1019,7 @@
         var worker = Paths.WorkerExePath;
         return string.IsNullOrEmpty(worker) || System.IO.Path.GetDirectoryName(worker) is not { } dir
             ? null
-            : Xilium.CefGlue.Headless.Service.CefRecLibrary.Open(System.IO.Path.Combine(dir, "cefrec.dll"));
+            : Xilium.CefGlue.Headless.Service.CefRecLibrary.Open(System.IO.Path.Combine(dir, OperatingSystem.IsWindows() ? "cefrec.dll" : "cefrec.so"));
     }
 
     private void LookUpRecording()

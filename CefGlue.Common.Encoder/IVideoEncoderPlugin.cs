@@ -106,15 +106,22 @@ namespace Xilium.CefGlue.Headless
     {
         public static bool TryLoad(Type pluginType, string libraryName, out string reason)
         {
+            var fileNames = OperatingSystem.IsWindows()
+                ? new[] { libraryName + ".dll" }
+                : new[] { "lib" + libraryName + ".so", libraryName + ".so" };
+
             var pluginDir = Path.GetDirectoryName(pluginType.Assembly.Location);
             if (!string.IsNullOrEmpty(pluginDir))
             {
-                var localPath = Path.Combine(pluginDir, libraryName + ".dll");
-                if (File.Exists(localPath) && NativeLibrary.TryLoad(localPath, out var localHandle))
+                foreach (var fileName in fileNames)
                 {
-                    NativeLibrary.Free(localHandle);
-                    reason = null;
-                    return true;
+                    var localPath = Path.Combine(pluginDir, fileName);
+                    if (File.Exists(localPath) && NativeLibrary.TryLoad(localPath, out var localHandle))
+                    {
+                        NativeLibrary.Free(localHandle);
+                        reason = null;
+                        return true;
+                    }
                 }
             }
 
@@ -125,7 +132,7 @@ namespace Xilium.CefGlue.Headless
                 return true;
             }
 
-            reason = $"{libraryName}.dll could not be loaded";
+            reason = $"{fileNames[0]} could not be loaded";
             return false;
         }
     }

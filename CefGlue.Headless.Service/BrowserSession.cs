@@ -5,6 +5,9 @@ namespace Xilium.CefGlue.Headless.Service
 {
     internal sealed class BrowserSession
     {
+        public readonly object VideoEncoderGate = new object();
+        public bool VideoClosed;
+
         public string Id { get; }
         public HeadlessCefBrowser Browser { get; }
 

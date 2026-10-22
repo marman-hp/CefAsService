@@ -1,6 +1,6 @@
 # CEF As Service
 
-**Chromium as a service.** Run real Chromium (CEF) browsers on a Windows server and stream them to any
+**Chromium as a service.** Run real Chromium (CEF) browsers on a Windows server (Linux: [preview](#linux-preview)) and stream them to any
 web browser. A **Broker** gives each client its own headless browser worker
 and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Admin** web app manages it all.
 
@@ -126,6 +126,18 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 - **Extract to a writable folder**, not `C:\Program Files`: the OpenH264 download is written next to the executables. Settings (`broker.db`, one SQLite file shared by Admin, Broker and workers), browser profiles and caches live in `C:\ProgramData\CefGlue` (a hidden folder).
 - **Don't mix elevated and normal runs.** Files created while running as administrator may not be writable by a normal run afterwards. Pick one and stick to it.
 
+## Linux (preview)
+
+The worker, Broker and Admin build for `linux-x64` from this source (`dotnet build <project> -c Release -p:Platform=x64 -r linux-x64`, .NET 10 SDK; CI checks it on Ubuntu 22.04). It is a **preview**, with these limits:
+
+- **There is no Linux release download yet**, and `get-cef.ps1` is Windows-only. You need CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux (linux64 *minimal*, exactly this version from [cef-builds.spotifycdn.com](https://cef-builds.spotifycdn.com/index.html)) placed next to the worker.
+- **The repository does not include the Linux native components** (WebRTC, Opus audio, session recorder). A Linux build from this source therefore has the **WebSocket** transport only: no WebRTC, no audio, no recording.
+- **Video:** JPG frames, or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
+- **Software only:** no GPU encoder. Without X11/Wayland the worker falls back to Chromium's headless backend. We tested on Ubuntu 22.04/24.04 with natives built for glibc 2.35 or newer.
+- Software encoding is CPU-bound: on a 4-thread laptop CPU, 1080p H.264 reaches roughly 30 fps and 720p is smooth.
+
+A full Linux release (with the native components and a ready-to-run package) is planned.
+
 ## Projects
 
 | Folder | What it is |
@@ -138,7 +150,28 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 | `CefGlue.Common.Encoder` | Encoder plugin contract + built-in JPG |
 | `lib/` | Prebuilt components (binary only, see `LICENSE-BINARY.txt`) |
 
-## Video encoders & OpenH264
+## Video encoders
+
+Encoders are plugins, loaded from the worker's `plugins/encoders/<name>/` (one folder with a
+`plugin.json`). The release ships the ones marked *shipped*; the others work with CAS but aren't
+included.
+
+| Encoder | Codec | Type | Status |
+|---|---|---|---|
+| JPG (built in) | image frames | software | **Shipped.** WebSocket only; plays in every browser, uses the most bandwidth |
+| OpenH264 (Cisco) | H.264 | software | **Shipped** as a plugin; the codec itself is a download from Cisco (below) |
+| x264 | H.264 | software | Works - not shipped (license) |
+| Intel Quick Sync (QSV) | H.264, HEVC | hardware | Works - not shipped (license) |
+| NVIDIA NVENC | H.264, HEVC | hardware | Not shipped - needs more investigation on an RTX 40 series or newer. Tested on a Quadro P620: it can't keep up with heavy scrolling - laggy |
+| x265 | HEVC | software | Not shipped (license). Too slow in software for real time; HEVC needs a hardware encoder (QSV / NVENC) |
+| SVT-AV1 | AV1 | software | Not shipped. Too slow in software for real time; AV1 needs a hardware encoder (Intel Arc / Core Ultra, NVIDIA RTX 40+, AMD RX 7000+) - no AV1 hardware plugin yet |
+| libvpx | VP9 | software | On hold |
+
+What the viewer can play: H.264 works in Chrome and Edge (WebCodecs). HEVC needs a browser with
+hardware HEVC decoding and doesn't play in CEF-based viewers. WebRTC mode needs a video encoder;
+WebSocket mode can fall back to JPG.
+
+### OpenH264
 
 The OpenH264 plugin is included, **but Cisco's `openh264.dll` is not**. Cisco's free H.264 patent
 coverage applies only when the end user downloads Cisco's binary, so you fetch it on your own machine:
@@ -155,8 +188,6 @@ checks its SHA-256 and warns if it is a different build.
 *OpenH264 Video Codec provided by Cisco Systems, Inc.* Cisco's patent coverage is for personal and
 non-commercial use. A paid service that streams H.264 may need its own H.264 patent license.
 
-> WebRTC mode needs a video encoder. WebSocket mode can also stream plain JPG frames.
-
 ## Security notes
 
 - The Admin UI and the control channel are **loopback-only** by design. Don't expose them.
@@ -167,6 +198,14 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 - **Session recording** is off by default. Turning it on in Admin means accepting responsibility for how it is used on your server.
 
 ## Release history
+
+### v0.3.0
+
+- Added a **Linux x64 preview**: worker, Broker and Admin build for `linux-x64` (see [Linux (preview)](#linux-preview) for what is and isn't included).
+- OpenH264 plugin now downloads per OS (`win-x64`, `linux-x64`).
+- Workers exit with their Broker on Linux, and the overlay info shows the OS.
+- Frame path: pooled, reused frame buffers instead of two large copies per paint. In our 1080p tests the worker used about 25% less CPU on Windows and WSL and almost no garbage collection; on a 4-thread laptop CPU, +4-7% frame rate.
+- CI: Windows x64 build and a `linux-x64` compile check on every push.
 
 ### v0.2.1
 

@@ -127,7 +127,8 @@ namespace Xilium.CefGlue.Headless.Service
                         break;
 
                     case "openUrl":
-                        Select(AddBrowser(GetString(root, "url")));
+                        var dropSource = _selectedId != null && _sessions.TryGetValue(_selectedId, out var dropSession) ? dropSession.ContextId : null;
+                        Select(AddBrowser(GetString(root, "url"), existingContextId: dropSource));
                         break;
 
                     case "navigate":
@@ -697,12 +698,19 @@ namespace Xilium.CefGlue.Headless.Service
             }
 
             _sessions.Remove(id);
+            _ = Task.Delay(150).ContinueWith(_ =>
+            {
+                if (!_disposed)
+                {
+                    WithSelectedTarget(t => t.InjectFocus());
+                }
+            });
             if (session.Recorder is { } closingRecorder)
             {
                 FinishRecording(session, closingRecorder);
             }
             session.Browser.Dispose();
-            session.H264Encoder?.Dispose();
+            CloseVideoEncoder(session);
             session.OpusEncoder?.Dispose();
             ReleaseRecordingEncoder(session);
 
@@ -857,6 +865,7 @@ namespace Xilium.CefGlue.Headless.Service
 
             if (_selectedId != null && _sessions.TryGetValue(_selectedId, out var previous))
             {
+                previous.Browser.Target.CancelDragIfActive();
                 previous.Browser.Target.InjectLostFocus();
                 previous.Browser.Target.InjectVisibility(false);
 
@@ -1192,7 +1201,8 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
-            System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, frame);
+            frame.Retain();
+            System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, frame)?.Release();
             if (System.Threading.Interlocked.CompareExchange(ref session.RecordingEncodeRunning, 1, 0) == 0)
             {
                 Task.Run(() => RecordingEncodeLoop(session));
@@ -1218,6 +1228,7 @@ namespace Xilium.CefGlue.Headless.Service
                 var recorder = session.Recorder;
                 if (recorder is not { IsVideo: true, IncludeCursor: true } || _disposed)
                 {
+                    frame.Release();
                     DisposeRecordingEncoderOwned(session);
                     continue;
                 }
@@ -1260,6 +1271,10 @@ namespace Xilium.CefGlue.Headless.Service
                         FinishRecording(session, recorder);
                     }
                 }
+                finally
+                {
+                    frame.Release();
+                }
             }
         }
 
@@ -1271,9 +1286,19 @@ namespace Xilium.CefGlue.Headless.Service
             session.RecordingEncoderHeight = 0;
         }
 
+        private static void CloseVideoEncoder(BrowserSession session)
+        {
+            lock (session.VideoEncoderGate)
+            {
+                session.VideoClosed = true;
+                session.H264Encoder?.Dispose();
+                session.H264Encoder = null;
+            }
+        }
+
         private static void ReleaseRecordingEncoder(BrowserSession session)
         {
-            System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, null);
+            System.Threading.Interlocked.Exchange(ref session.PendingRecordingFrame, null)?.Release();
             if (System.Threading.Interlocked.CompareExchange(ref session.RecordingEncodeRunning, 1, 0) == 0)
             {
                 DisposeRecordingEncoderOwned(session);
@@ -1886,19 +1911,25 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
+            frame.Retain();
+
+            HeadlessFrame replaced;
             lock (_encodeLock)
             {
+                replaced = _pendingEncodeFrame;
                 _pendingEncodeFrame = frame;
                 _pendingEncodeSessionId = session.Id;
 
                 if (_isEncoding)
                 {
+                    replaced?.Release();
                     return;
                 }
 
                 _isEncoding = true;
             }
 
+            replaced?.Release();
             Task.Run(RunEncodeLoop);
         }
 
@@ -1932,6 +1963,7 @@ namespace Xilium.CefGlue.Headless.Service
 
                 if (_disposed || sessionId != _selectedId)
                 {
+                    frame.Release();
                     continue;
                 }
 
@@ -1965,6 +1997,10 @@ namespace Xilium.CefGlue.Headless.Service
                 {
                     Console.Error.WriteLine($"[SessionManager] RunEncodeLoop: encode failed for session {sessionId} (format {format}), dropping this frame: {ex}");
                 }
+                finally
+                {
+                    frame.Release();
+                }
             }
         }
 
@@ -1974,6 +2010,19 @@ namespace Xilium.CefGlue.Headless.Service
             {
                 return;
             }
+
+            lock (session.VideoEncoderGate)
+            {
+                if (session.VideoClosed)
+                {
+                    return;
+                }
+                EncodeAndBroadcastH264Locked(sessionId, session, frame);
+            }
+        }
+
+        private void EncodeAndBroadcastH264Locked(string sessionId, BrowserSession session, HeadlessFrame frame)
+        {
 
             if (_h264Quality == VideoQuality.Speed && frame.DirtyRects != null && frame.DirtyRects.Length == 0)
             {
@@ -2490,7 +2539,7 @@ namespace Xilium.CefGlue.Headless.Service
                     shutdownRecorder.End()?.Dispose();
                 }
                 session.Browser.Dispose();
-                session.H264Encoder?.Dispose();
+                CloseVideoEncoder(session);
                 session.OpusEncoder?.Dispose();
                 ReleaseRecordingEncoder(session);
             }

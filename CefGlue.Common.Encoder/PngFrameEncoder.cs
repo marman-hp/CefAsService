@@ -9,6 +9,11 @@ namespace Xilium.CefGlue.Headless
     {
         public static byte[] Encode(byte[] bgraBuffer, int width, int height)
         {
+            if (!System.OperatingSystem.IsWindows())
+            {
+                return WebPFrameEncoder.EncodeWithSkia(bgraBuffer, width, height, SkiaSharp.SKEncodedImageFormat.Png, 100);
+            }
+
             var handle = GCHandle.Alloc(bgraBuffer, GCHandleType.Pinned);
 
             try

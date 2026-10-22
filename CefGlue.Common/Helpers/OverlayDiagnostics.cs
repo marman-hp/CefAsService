@@ -18,6 +18,53 @@ namespace Xilium.CefGlue.Common.Helpers
 
         public static string GpuName { get; } = Truncate(GetGpuName());
 
+        public static string OsName { get; } = FitOsName(GetOsName());
+
+        private static string FitOsName(string value)
+            => string.IsNullOrEmpty(value) || value.Length <= MaxDisplayNameLength + 3 ? value : value[..(MaxDisplayNameLength + 1)] + "..";
+
+        private static string GetOsName()
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    var version = Environment.OSVersion.Version;
+                    return $"Windows {(version.Build >= 22000 ? "11" : "10")} ({version.Build})";
+                }
+
+                if (OperatingSystem.IsLinux())
+                {
+                    string name = null, versionId = null;
+                    foreach (var line in System.IO.File.ReadLines("/etc/os-release"))
+                    {
+                        if (line.StartsWith("NAME=", StringComparison.Ordinal))
+                        {
+                            name = line[5..].Trim('"', '\'');
+                        }
+                        else if (line.StartsWith("VERSION_ID=", StringComparison.Ordinal))
+                        {
+                            versionId = line[11..].Trim('"', '\'');
+                        }
+                    }
+
+                    return string.IsNullOrEmpty(name)
+                        ? "Linux"
+                        : $"Linux {name.Split(' ')[0]}{(string.IsNullOrEmpty(versionId) ? "" : " " + versionId)}";
+                }
+
+                if (OperatingSystem.IsMacOS())
+                {
+                    return $"macOS {Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor}";
+                }
+            }
+            catch
+            {
+            }
+
+            return System.Runtime.InteropServices.RuntimeInformation.OSDescription;
+        }
+
         private static string Truncate(string value)
         {
             if (string.IsNullOrEmpty(value) || value.Length <= MaxDisplayNameLength)
