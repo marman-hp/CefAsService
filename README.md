@@ -234,7 +234,6 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 - OpenH264 plugin now downloads per OS (`win-x64`, `linux-x64`).
 - Workers exit with their Broker on Linux, and the overlay info shows the OS.
 - Frame path: pooled, reused frame buffers instead of two large copies per paint. In our 1080p tests the worker used about 25% less CPU on Windows and WSL and almost no garbage collection; on a 4-thread laptop CPU, +4-7% frame rate.
-- Fixed the Broker's startup message printing a viewer address that returned 404 (`/broker.html`); the viewer is at `/broker`.
 - CI: Windows x64 build and a `linux-x64` compile check on every push.
 
 ### v0.2.1
