@@ -53,11 +53,11 @@ first-run prompt.
 
 ## Hardware
 
-- **CPU (server):** OpenH264 and VP9 are software encoders, so video encoding runs entirely on the CPU and
+- **CPU (server):** OpenH264 and  are software encoders, so video encoding runs entirely on the CPU and
   each streaming session runs its own encoder. From our testing: **6 cores minimum, 8 or more
   recommended**, more for several sessions at once or high resolutions. The encoder uses up to
   `min(cores, 8)` threads by default, VP9 up to `min(cores, 6)` (Encoder Settings → *Thread cap*).
-  VP9 needs more CPU than OpenH264: on a 4-thread CPU, use OpenH264. JPG mode needs no video
+  . JPG mode needs no video
   encoder but still costs CPU per frame.
 - **GPU (server):** not needed. *Disable GPU* is on by default.
 - **Viewer (client):** a browser with hardware H.264 decoding (any normal PC or phone) gives the
@@ -136,7 +136,7 @@ Worker, Broker and Admin run on `linux-x64`. The Linux native components (WebRTC
 - **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.3.1` writes `artifacts/CefAsService-v0.3.1-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). There is no ready-made Linux download yet. The natives are built for glibc 2.35 or newer.
 - **Run it:** the package's `README.txt` has the steps: ASP.NET Core 10 runtime, a few system libraries, `./setup-cef.sh` (downloads CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux, linux64 *minimal*), then `./run.sh`. `get-cef.ps1` is Windows-only.
 - **Transports and features:** WebSocket and WebRTC, Opus audio and session recording are included.
-- **Video:** JPG frames, VP9 (libvpx, included), or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*). VP9 is too heavy for a 4-thread laptop CPU; use OpenH264 there.
+- **Video:** JPG frames, VP9 (libvpx, included), or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
 - **Software only:** no GPU encoder. Without X11/Wayland the worker falls back to Chromium's headless backend.
 - Software encoding is CPU-bound: on a 4-thread laptop CPU, 1080p H.264 reaches roughly 30 fps and 720p is smooth.
 
