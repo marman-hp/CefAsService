@@ -197,7 +197,7 @@ included.
 | NVIDIA NVENC | H.264, HEVC | hardware | Not shipped - needs more investigation on an RTX 40 series or newer. Tested on a Quadro P620: it can't keep up with heavy scrolling - laggy |
 | x265 | HEVC | software | Not shipped (license). Too slow in software for real time; HEVC needs a hardware encoder (QSV / NVENC) |
 | SVT-AV1 | AV1 | software | Not shipped. Too slow in software for real time; AV1 needs a hardware encoder (Intel Arc / Core Ultra, NVIDIA RTX 40+, AMD RX 7000+) - no AV1 hardware plugin yet |
-| libvpx | VP9 | software | **Shipped** as a plugin, libvpx included (BSD). Heavier on the CPU than OpenH264 |
+| libvpx | VP9 | software | **Shipped** as a plugin, libvpx included (BSD). |
 
 What the viewer can play: H.264 works in Chrome and Edge (WebCodecs). VP9 works in Chrome and Edge
 and also in CEF-based viewers (standard CEF builds have no H.264 or HEVC decoder). HEVC needs a browser with hardware HEVC
