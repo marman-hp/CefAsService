@@ -350,7 +350,7 @@
     --enc-green: #58d68d;
 
     width: 100%;
-    max-width: 860px;
+    max-width: 960px;
     box-sizing: border-box;
     padding: 22px;
     margin-bottom: 20px;
@@ -586,7 +586,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    max-width: 860px;
+    max-width: 960px;
     box-sizing: border-box;
     margin-bottom: 0;
     padding: 4px;
@@ -601,13 +601,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 14px;
+    padding: 8px 6px;
     border: none;
     border-radius: 8px;
     background: transparent;
     color: #929baa;
     font: inherit;
-    font-size: 13px;
+    font-size: 12.5px;
     cursor: pointer;
 }
 

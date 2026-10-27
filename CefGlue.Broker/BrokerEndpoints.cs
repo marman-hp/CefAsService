@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using TicketAuth = Xilium.CefGlue.Headless.Server.TicketAuth;
 
 namespace Xilium.CefGlue.Broker
 {
@@ -39,6 +41,7 @@ namespace Xilium.CefGlue.Broker
 
             app.Map("/worker", HandleWorkerConnection);
             app.MapPost("/assign", (Delegate)HandleAssign);
+            app.MapPost("/tab-proxy", (Delegate)HandleTabProxy);
             app.Map("/relay/frames", HandleRelay);
 
             app.MapGet("/config", () => Results.Json(new
@@ -69,7 +72,26 @@ namespace Xilium.CefGlue.Broker
             var target = $"{record.Address}/devtools/{path}{context.Request.QueryString}";
             if (context.WebSockets.IsWebSocketRequest)
             {
+                var settings = BrokerSettings.Load();
+                var profile = DevToolsGate.ParseProfile(settings.DevToolsProfile);
+                if (profile != DevToolsProfile.Full)
+                {
+                    DevToolsGate.ConfigureAddressPolicy(settings, int.TryParse(record.Address.Split(':')[^1], out var workerPort) ? workerPort : 0);
+
+                    if (!path.StartsWith("page/", StringComparison.Ordinal))
+                    {
+                        Console.WriteLine($"[DevTools] tenant '{keyId[..8]}': WebSocket to '/devtools/{path.Split('/')[0]}/...' " +
+                            (profile == DevToolsProfile.Restricted ? "refused (only page targets are allowed)." : "allowed (learn profile)."));
+                        if (profile == DevToolsProfile.Restricted)
+                        {
+                            context.Response.StatusCode = 403;
+                            return;
+                        }
+                    }
+                }
+
                 using var workerSocket = new ClientWebSocket();
+                workerSocket.Options.SetRequestHeader(TicketAuth.HeaderName, MintTicket(keyId, TicketAuth.InternalScope));
                 try
                 {
                     await workerSocket.ConnectAsync(new Uri("ws://" + target), context.RequestAborted);
@@ -80,7 +102,37 @@ namespace Xilium.CefGlue.Broker
                     return;
                 }
                 using var clientSocket = await context.WebSockets.AcceptWebSocketAsync();
-                await Task.WhenAny(PumpAsync(clientSocket, workerSocket), PumpAsync(workerSocket, clientSocket));
+
+                using var profileMonitor = new CancellationTokenSource();
+                if (profile != DevToolsProfile.Full)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            while (!profileMonitor.IsCancellationRequested)
+                            {
+                                await Task.Delay(TimeSpan.FromSeconds(3), profileMonitor.Token);
+                                if (DevToolsGate.ParseProfile(BrokerSettings.Load().DevToolsProfile) != profile)
+                                {
+                                    Console.WriteLine($"[DevTools] tenant '{keyId[..8]}': the DevTools profile was changed - closing this connection.");
+                                    try { await clientSocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "DevTools settings changed", CancellationToken.None); } catch { }
+                                    try { await workerSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); } catch { }
+                                    return;
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                        }
+                    });
+                }
+
+                var viewerToWorker = profile == DevToolsProfile.Full
+                    ? PumpAsync(clientSocket, workerSocket)
+                    : DevToolsGate.PumpFromViewerAsync(clientSocket, workerSocket, profile, keyId);
+                await Task.WhenAny(viewerToWorker, PumpAsync(workerSocket, clientSocket));
+                profileMonitor.Cancel();
                 try { await clientSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); } catch { }
                 try { await workerSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); } catch { }
                 return;
@@ -93,7 +145,9 @@ namespace Xilium.CefGlue.Broker
             }
             try
             {
-                using var response = await DevToolsHttp.GetAsync("http://" + target, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, "http://" + target);
+                request.Headers.Add(TicketAuth.HeaderName, MintTicket(keyId, TicketAuth.InternalScope));
+                using var response = await DevToolsHttp.SendAsync(request, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
                 context.Response.StatusCode = (int)response.StatusCode;
                 context.Response.ContentType = response.Content.Headers.ContentType?.ToString();
                 await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
@@ -118,7 +172,9 @@ namespace Xilium.CefGlue.Broker
 
             try
             {
-                using var response = await RecordingHttp.GetAsync($"http://{record.Address}/recordings/{id}",
+                using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, $"http://{record.Address}/recordings/{id}");
+                request.Headers.Add(TicketAuth.HeaderName, MintTicket(keyId, TicketAuth.InternalScope));
+                using var response = await RecordingHttp.SendAsync(request,
                     System.Net.Http.HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -198,12 +254,59 @@ namespace Xilium.CefGlue.Broker
             return Results.Json(new { ok = true, cacheDeleted });
         }
 
+        private static string MintTicket(string keyId, string scope) => TicketAuth.Mint(Program.WorkerSecret, keyId, scope);
+
+        private static bool IsLoopbackWorkerAddress(string address)
+        {
+            if (string.IsNullOrEmpty(address) || !address.StartsWith("127.0.0.1:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return int.TryParse(address.AsSpan("127.0.0.1:".Length), System.Globalization.NumberStyles.None, null, out var port) && port is > 0 and <= 65535;
+        }
+
+        private static void ReportProxyHealthChange(HttpContext context, string tenantId, string previous, string state, string detail)
+        {
+            var label = ProxyAssignments.Describe(tenantId, BrokerSettings.Load())?.Label ?? "(unknown)";
+            var shortId = tenantId.Length > 8 ? tenantId[..8] : tenantId;
+            if (state is "authFailed" or "unreachable")
+            {
+                var what = state == "authFailed" ? "refuses the login" : "is unreachable";
+                Console.WriteLine($"[Broker] Tenant '{shortId}': proxy {label} {what}{(string.IsNullOrEmpty(detail) ? "" : $" ({detail})")}.");
+                try
+                {
+                    context.RequestServices.GetService<IProxyAssigner>()?.ReportFailure(tenantId, label, $"{state}: {detail}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Broker] IProxyAssigner.ReportFailure threw: {ex.Message}");
+                }
+            }
+            else if (state == "ok" && previous is "authFailed" or "unreachable")
+            {
+                Console.WriteLine($"[Broker] Tenant '{shortId}': proxy {label} works again.");
+            }
+        }
+
         private static async Task HandleWorkerConnection(HttpContext context)
         {
             if (!context.WebSockets.IsWebSocketRequest)
             {
                 context.Response.StatusCode = 400;
                 return;
+            }
+
+            var presentedSecret = context.Request.Headers[TicketAuth.WorkerSecretHeaderName].ToString();
+            if (!TicketAuth.SecretsEqual(presentedSecret, Program.WorkerSecret))
+            {
+                Console.WriteLine($"[Security] /worker: connection from {context.Connection.RemoteIpAddress} without a valid worker secret - " +
+                    (Program.RequireTickets ? "REJECTED" : "allowed (log-only: Admin > Transport > Require signed tickets is off)"));
+                if (Program.RequireTickets)
+                {
+                    context.Response.StatusCode = 401;
+                    return;
+                }
             }
 
             var socket = await context.WebSockets.AcceptWebSocketAsync();
@@ -242,10 +345,25 @@ namespace Xilium.CefGlue.Broker
 
                     if (type == "register")
                     {
-                        registeredTenantId = root.GetProperty("tenantId").GetString();
+                        var claimedTenantId = root.GetProperty("tenantId").GetString();
                         var pageId = root.GetProperty("pageId").GetString();
                         var address = root.GetProperty("address").GetString();
 
+                        if (!IsLoopbackWorkerAddress(address) || !Program.SpawnedProcesses.ContainsKey(claimedTenantId ?? ""))
+                        {
+                            var addressOk = IsLoopbackWorkerAddress(address);
+                            Console.WriteLine($"[Security] /worker register: tenant '{claimedTenantId}' address '{address}' - " +
+                                (addressOk ? "" : "address is not 127.0.0.1:PORT; ") +
+                                (Program.SpawnedProcesses.ContainsKey(claimedTenantId ?? "") ? "" : "tenant was not spawned by this Broker; ") +
+                                (Program.RequireTickets ? "REJECTED" : "allowed (log-only: Admin > Transport > Require signed tickets is off)"));
+                            if (Program.RequireTickets)
+                            {
+                                try { await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "rejected", CancellationToken.None); } catch { }
+                                return;
+                            }
+                        }
+
+                        registeredTenantId = claimedTenantId;
                         registeredAddress = address;
                         Program.Registry.Register(registeredTenantId, pageId, address);
                         WorkerManifest.Add(registeredTenantId, pageId, address,
@@ -259,6 +377,19 @@ namespace Xilium.CefGlue.Broker
                         var sessions = root.GetProperty("sessions").GetInt32();
 
                         Program.Registry.Heartbeat(registeredTenantId, cpu, encoder, sessions);
+
+                        string proxyState = null, proxyDetail = null;
+                        if (root.TryGetProperty("proxy", out var proxyProp) && proxyProp.ValueKind == JsonValueKind.Object)
+                        {
+                            proxyState = proxyProp.TryGetProperty("state", out var stateProp) && stateProp.ValueKind == JsonValueKind.String ? stateProp.GetString() : null;
+                            proxyDetail = proxyProp.TryGetProperty("detail", out var detailProp) && detailProp.ValueKind == JsonValueKind.String ? detailProp.GetString() : null;
+                        }
+
+                        var (proxyChanged, proxyPrevious) = ProxyHealth.Update(registeredTenantId, proxyState, proxyDetail);
+                        if (proxyChanged)
+                        {
+                            ReportProxyHealthChange(context, registeredTenantId, proxyPrevious, proxyState, proxyDetail);
+                        }
 
                         var tabs = root.TryGetProperty("tabs", out var tabsProp) && tabsProp.ValueKind == JsonValueKind.Array
                             ? tabsProp.EnumerateArray()
@@ -290,6 +421,8 @@ namespace Xilium.CefGlue.Broker
                     {
                         Console.WriteLine($"[Broker] Worker for tenant '{registeredTenantId}' disconnected - removed from registry.");
                     }
+
+                    ProxyHealth.Clear(registeredTenantId);
 
                     if (Program.SpawnedProcesses.TryRemove(registeredTenantId, out var exitedProcess))
                     {
@@ -323,6 +456,7 @@ namespace Xilium.CefGlue.Broker
             var clientSocket = await context.WebSockets.AcceptWebSocketAsync();
 
             using var workerSocket = new ClientWebSocket();
+            workerSocket.Options.SetRequestHeader(TicketAuth.HeaderName, MintTicket(tenantId, TicketAuth.ViewScope));
             var viewerIp = ClientIpFrom(context);
             if (!string.IsNullOrEmpty(viewerIp))
             {
@@ -454,9 +588,66 @@ namespace Xilium.CefGlue.Broker
             return null;
         }
 
+        private static async Task<IResult> HandleTabProxy(HttpContext context)
+        {
+            string keyId = null, proxyId = null;
+            try
+            {
+                using var doc = await JsonDocument.ParseAsync(context.Request.Body);
+                keyId = doc.RootElement.TryGetProperty("keyId", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null;
+                proxyId = doc.RootElement.TryGetProperty("proxyId", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+            }
+            catch (JsonException)
+            {
+                return Results.BadRequest();
+            }
+
+            if (!IsKeyIdShaped(keyId) || !Program.Registry.TryGet(keyId, out _))
+            {
+                return Results.Json(new { error = "no-session" }, statusCode: StatusCodes.Status404NotFound);
+            }
+
+            var settings = BrokerSettings.Load();
+            if (!ProxyAssignments.PerTabChoiceApplies(settings))
+            {
+                return Results.Json(new { choose = false });
+            }
+
+            if (!Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(settings.ProxyPool, out var pool, out _) || pool.Count == 0)
+            {
+                return Results.Json(new { error = "proxy", message = "The proxy table saved in the Admin has no usable proxy." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            var options = pool.Select(o => new { id = o.Id, label = o.Label }).ToList();
+            if (string.IsNullOrEmpty(proxyId))
+            {
+                return Results.Json(new { choose = true, options });
+            }
+
+            var picked = pool.FirstOrDefault(o => o.Id == proxyId);
+            if (picked == null)
+            {
+                return Results.Json(new { choose = true, options, error = "choose-proxy" }, statusCode: StatusCodes.Status409Conflict);
+            }
+
+            const string alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+            var contextId = new string(System.Security.Cryptography.RandomNumberGenerator.GetItems<char>(alphabet.AsSpan(), 12));
+            ProxyAssignments.SetContext(contextId, keyId, picked.Id);
+            Console.WriteLine($"[Broker] Tenant '{keyId[..Math.Min(8, keyId.Length)]}': a new tab will use proxy {picked.Label}.");
+            return Results.Json(new
+            {
+                choose = true,
+                contextId,
+                proxyId = picked.Id,
+                label = picked.Label,
+                ticket = MintTicket(keyId, $"tabproxy:{contextId}:{picked.Id}"),
+            });
+        }
+
         private static async Task<IResult> HandleAssign(HttpContext context)
         {
             string requestedKeyId = null;
+            string chosenProxyId = null;
 
             try
             {
@@ -464,6 +655,11 @@ namespace Xilium.CefGlue.Broker
                 if (doc.RootElement.TryGetProperty("keyId", out var keyIdProp) && keyIdProp.ValueKind == JsonValueKind.String)
                 {
                     requestedKeyId = keyIdProp.GetString();
+                }
+
+                if (doc.RootElement.TryGetProperty("proxyId", out var proxyIdProp) && proxyIdProp.ValueKind == JsonValueKind.String)
+                {
+                    chosenProxyId = proxyIdProp.GetString();
                 }
             }
             catch (JsonException)
@@ -480,7 +676,7 @@ namespace Xilium.CefGlue.Broker
                 NoteClient(context, requestedKeyId);
                 var reconnectAddress = BuildClientFacingAddress(context, existing.Address);
                 Console.WriteLine($"[Broker] Reconnect: tenant '{requestedKeyId}' -> {reconnectAddress}");
-                return Results.Ok(new { keyId = requestedKeyId, address = reconnectAddress, isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport() });
+                return Results.Ok(new { keyId = requestedKeyId, address = reconnectAddress, ticket = MintTicket(requestedKeyId, TicketAuth.ViewScope), isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport(), proxy = ProxyAssignments.LabelFor(requestedKeyId, BrokerSettings.Load()) });
             }
 
             var keyId = requestedKeyId ?? Guid.NewGuid().ToString("n");
@@ -497,7 +693,7 @@ namespace Xilium.CefGlue.Broker
                 {
                     var reconnectAddress = BuildClientFacingAddress(context, registered.Address);
                     Console.WriteLine($"[Broker] Reconnect (post-lock): tenant '{keyId}' -> {reconnectAddress}");
-                    return Results.Ok(new { keyId, address = reconnectAddress, isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport() });
+                    return Results.Ok(new { keyId, address = reconnectAddress, ticket = MintTicket(keyId, TicketAuth.ViewScope), isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport(), proxy = ProxyAssignments.LabelFor(keyId, BrokerSettings.Load()) });
                 }
 
                 if (Program.SpawnedProcesses.TryGetValue(keyId, out var existingProcess) && !existingProcess.HasExited)
@@ -508,9 +704,57 @@ namespace Xilium.CefGlue.Broker
                 {
                     int port = ProcessSpawner.FindFreePort();
                     var (tabs, selectedTabId) = WorkerManifest.GetTabs(keyId);
-                    process = ProcessSpawner.SpawnWorker(keyId, pageId, port, $"ws://127.0.0.1:{Program.PlainHttpPort}/worker", httpsCertPath: SelfSignedCertificate.CertPath,
-                        initialTabs: tabs, initialSelectedTabId: selectedTabId);
-                    Program.SpawnedProcesses[keyId] = process;
+                    var clientIp = ClientIpFrom(context);
+
+                    var proxySaved = BrokerSettings.Load();
+                    var proxyDecision = await context.RequestServices.GetRequiredService<IProxyAssigner>()
+                        .AssignAsync(new ProxyRequest(keyId,
+                            new ProxySettings(proxySaved.ProxyGlobal, proxySaved.ProxyMode, proxySaved.ProxyPool,
+                                Enabled: proxySaved.ProxyEnabled == "1", GlobalProxyId: proxySaved.ProxyGlobalId),
+                            chosenProxyId), context.RequestAborted);
+                    if (proxyDecision.Kind == ProxyDecisionKind.Refused)
+                    {
+                        Console.WriteLine($"[Broker] Worker for tenant '{keyId[..Math.Min(8, keyId.Length)]}' not started: {proxyDecision.Reason}");
+                        Program.SpawnLocks.TryRemove(keyId, out _);
+                        return Results.Json(new { error = "proxy", message = proxyDecision.Reason }, statusCode: 503);
+                    }
+
+                    if (proxyDecision.Kind == ProxyDecisionKind.Choose)
+                    {
+                        Program.SpawnLocks.TryRemove(keyId, out _);
+                        return Results.Json(new
+                        {
+                            error = "choose-proxy",
+                            keyId,
+                            options = proxyDecision.Options.Select(o => new { id = o.Id, label = o.Label }),
+                        }, statusCode: StatusCodes.Status409Conflict);
+                    }
+
+                    SpawnDenial denial;
+                    process = null;
+                    lock (SpawnLimits.Gate)
+                    {
+                        denial = SpawnLimits.Check(keyId, WorkerManifest.TryGetGone(keyId, out _), clientIp, DateTime.UtcNow);
+                        if (denial == null)
+                        {
+                            process = ProcessSpawner.SpawnWorker(keyId, pageId, port, $"ws://127.0.0.1:{Program.PlainHttpPort}/worker", httpsCertPath: SelfSignedCertificate.CertPath,
+                                initialTabs: tabs, initialSelectedTabId: selectedTabId, proxy: proxyDecision.Assignment);
+                            if (proxyDecision.Assignment != null)
+                            {
+                                Console.WriteLine($"[Broker] Tenant '{keyId[..Math.Min(8, keyId.Length)]}' started through proxy {proxyDecision.Assignment.ProxyId}.");
+                            }
+                            Program.SpawnedProcesses[keyId] = process;
+                            SpawnLimits.Admitted(keyId, clientIp, DateTime.UtcNow);
+                        }
+                    }
+
+                    if (denial != null)
+                    {
+                        SpawnLimits.LogDenied(denial, keyId, clientIp);
+                        Program.SpawnLocks.TryRemove(keyId, out _);
+                        context.Response.Headers["Retry-After"] = denial.RetryAfterSeconds.ToString();
+                        return Results.Json(new { error = "busy", reason = denial.Reason, message = denial.Message, retryAfter = denial.RetryAfterSeconds }, statusCode: denial.Status);
+                    }
                 }
             }
             catch (Exception ex)
@@ -529,7 +773,7 @@ namespace Xilium.CefGlue.Broker
             {
                 if (Program.Registry.TryGet(keyId, out var record))
                 {
-                    return Results.Ok(new { keyId, address = BuildClientFacingAddress(context, record.Address), isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport() });
+                    return Results.Ok(new { keyId, address = BuildClientFacingAddress(context, record.Address), ticket = MintTicket(keyId, TicketAuth.ViewScope), isolation = IsolationInfo(), keyIdMaxAgeSeconds = KeyIdMaxAgeSeconds(), transport = Transport(), proxy = ProxyAssignments.LabelFor(keyId, BrokerSettings.Load()) });
                 }
 
                 if (process.HasExited)

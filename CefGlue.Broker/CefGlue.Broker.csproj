@@ -17,6 +17,9 @@
   <ItemGroup>
     <Compile Include="..\CefGlue.Headless.Service\TenantCachePaths.cs" Link="TenantCachePaths.cs" />
     <Compile Include="..\CefGlue.Headless.Service\ErrorLog.cs" Link="ErrorLog.cs" />
+    <Compile Include="..\CefGlue.Headless.Server\TicketAuth.cs" Link="TicketAuth.cs" />
+    <Compile Include="..\CefGlue.Headless.Service\AddressPolicy.cs" Link="AddressPolicy.cs" />
+    <Compile Include="..\CefGlue.Headless.Service\ProxyUrl.cs" Link="ProxyUrl.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">

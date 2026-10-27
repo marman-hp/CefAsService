@@ -67,7 +67,7 @@ namespace Xilium.CefGlue.Headless.Service
 
         public static bool IsValidContextId(string contextId) => contextId != null && ValidContextId.IsMatch(contextId);
 
-        public CefRequestContext GetOrCreate(string contextId)
+        public CefRequestContext GetOrCreate(string contextId, ProxyEndpoint proxy = null)
         {
             if (!IsValidContextId(contextId))
             {
@@ -85,8 +85,9 @@ namespace Xilium.CefGlue.Headless.Service
                 {
                     CachePath = ContextDir(contextId),
                 };
-                var context = CefRequestContext.CreateContext(settings, null);
+                var context = CefRequestContext.CreateContext(settings, WorkerProxy.CreateContextHandler(contextId, proxy));
                 _open[contextId] = context;
+                WorkerProxy.NoteContext(contextId, proxy);
                 _lastUsedUtc[contextId] = DateTime.UtcNow;
                 EnsureIndex(contextId);
                 SaveLedger();

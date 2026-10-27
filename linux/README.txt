@@ -1,4 +1,5 @@
-CAS for Linux x64 (preview). Video: JPG frames, or H.264 through the OpenH264 plugin (software; downloaded from Cisco).
+CAS for Linux x64 (preview). Video: JPG frames, VP9 (included), or H.264 through the OpenH264 plugin (software; downloaded from Cisco).
+VP9 needs more CPU than OpenH264: on a 4-thread CPU use OpenH264.
 
 1. Runtime (once):   ASP.NET Core 10 runtime
      Ubuntu/Debian:  sudo apt install -y aspnetcore-runtime-10.0     (or: dotnet-install.sh --channel 10.0 --runtime aspnetcore)
@@ -8,7 +9,7 @@ CAS for Linux x64 (preview). Video: JPG frames, or H.264 through the OpenH264 pl
        libxext6 libdrm2 libsqlite3-0 fontconfig fonts-noto-cjk fonts-noto-color-emoji
 3. CEF (once, downloads ~326 MB):   ./setup-cef.sh
 4. Run:   ./run.sh            then open http://localhost:57400 in a browser (accept the certificate warning)
-     Choose the video encoder in Admin (Encoder Settings, then restart the Broker). ENC=openh264 ./run.sh forces one instead.
+     Choose the video encoder in Admin (Encoder Settings, then restart the Broker). ENC=vp9 or ENC=openh264 ./run.sh forces one instead.
 5. H.264 (OpenH264, downloaded from Cisco):
      dotnet Admin/Xilium.CefGlue.Broker.Admin.dll --install-encoder openh264     then   ENC=openh264 ./run.sh
      (or Admin -> Encoder Settings -> openh264 -> Download from Cisco)

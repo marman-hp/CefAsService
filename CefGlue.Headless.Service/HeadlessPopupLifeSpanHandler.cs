@@ -28,6 +28,11 @@ namespace Xilium.CefGlue.Headless.Service
             ref CefDictionaryValue extraInfo,
             ref bool noJavascriptAccess)
         {
+            if (AddressPolicy.IsEnforced(BrowsingFilterLog.Observe(targetUrl, "popup", null)))
+            {
+                return true;
+            }
+
             var opensNewSession = targetDisposition == CefWindowOpenDisposition.NewPopup
                 || targetDisposition == CefWindowOpenDisposition.NewForegroundTab
                 || targetDisposition == CefWindowOpenDisposition.NewBackgroundTab

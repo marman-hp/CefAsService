@@ -1,0 +1,75 @@
+{
+  "assembly": "Xilium.CefGlue.VP9.Encoder.dll",
+  "encoders": [
+    {
+      "id": "vp9",
+      "displayName": "vp9",
+      "library": "VP9 · libvpx (ver - 1.16.0)",
+      "settingsPrefix": "VP9",
+      "settings": [
+        {
+          "key": "CPU_USED",
+          "label": "CPU used",
+          "type": "select",
+          "options": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8"
+          ],
+          "default": "8",
+          "title": "libvpx-vp9's own realtime speed/quality dial",
+          "note": "0=slowest/best, 8=fastest"
+        },
+        {
+          "key": "CQ_LEVEL",
+          "label": "CQ level",
+          "type": "number",
+          "min": "0",
+          "max": "63",
+          "step": "1",
+          "default": "20",
+          "title": "Lower = higher quality/more bits (0-63)",
+          "note": "Lower = higher quality"
+        },
+        {
+          "key": "BITRATE_MBPS",
+          "label": "Bitrate cap",
+          "type": "number",
+          "min": "1",
+          "step": "1",
+          "unit": "Mbps",
+          "default": "80",
+          "title": "A ceiling, not an average target",
+          "note": "Burst ceiling, quality-first mode"
+        },
+        {
+          "key": "KEYINT_SECONDS",
+          "label": "GOP interval",
+          "type": "number",
+          "min": "0.1",
+          "step": "0.1",
+          "unit": "s",
+          "default": "0.5",
+          "note": "Keyframe interval"
+        },
+        {
+          "key": "THREADS",
+          "label": "Thread cap",
+          "type": "number",
+          "min": "1",
+          "step": "1",
+          "placeholder": "Auto",
+          "default": "",
+          "title": "Blank = auto, min(logical cores, 6)",
+          "note": "Blank = automatic"
+        }
+      ]
+    }
+  ]
+}

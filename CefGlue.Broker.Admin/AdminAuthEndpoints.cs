@@ -134,8 +134,9 @@ namespace Xilium.CefGlue.Broker.Admin
 
                 if (auth.LockoutRemaining is { } remaining)
                 {
+                    auth.NoteRefusedWhileLocked();
                     return Page(context, antiforgery, "Admin login", "/login",
-                        $"Too many failed attempts - try again in {Math.Ceiling(remaining.TotalSeconds)}s.", null, confirmField: false);
+                        $"Too many failed attempts - try again in {AdminAuth.FormatDuration(remaining)}.", null, confirmField: false);
                 }
 
                 var form = await context.Request.ReadFormAsync();

@@ -26,7 +26,9 @@ and relays video, audio and input over **WebSocket** or **WebRTC**. A small **Ad
 - **Session recording:** record a tab to MP4 (video) or MP3 (audio only) and download it when you stop. The recording feature only works on non-sensitive sites; otherwise, the recording is blocked.
 - **DevTools in the viewer:** Chromium's own DevTools for each tab, in a resizable side panel (off by default, switched on in Admin).
 - **Drag and drop inside the page:** with a drag preview that follows the pointer; a link dropped on the address bar or the sidebar opens it.
-- **Pluggable video encoders:** loaded from `plugins/encoders/`. The OpenH264 plugin is included (the codec itself is a one-click download from Cisco, see below); the built-in formats are JPG.
+- **Pluggable video encoders:** loaded from `plugins/encoders/`. Two plugins are included: **VP9** (libvpx, ready to use) and **OpenH264** (the codec itself is a one-click download from Cisco, see below). The built-in format is JPG.
+- **Proxy:** one proxy table in Admin (HTTP, HTTPS, SOCKS5), switched on and off with one switch. *Global* sends every session through the row the admin picks; *Manual* lets the viewer user pick a row, and with `--isolation-mode-session` each new tab asks again. Pages opened from a tab use its proxy. Logins stay on the server; the viewer only sees labels.
+- **Browsing filter:** the remote browser can't reach CAS's own ports, `file:` or a Deny list (HTTP 403), with an Allow list and a log of what would be blocked.
 - **Admin web UI:** password-protected and loopback-only. Start/stop/restart the Broker, view live workers (OS, client IP, created), and manage encoder settings, session timeout, default URL and executables.
 
 ![DevTools in the viewer, next to the stream](cover-devtools.png)
@@ -43,7 +45,7 @@ How it fits together - processes, tenants, isolation modes, transports and conne
 2. Run `Admin\Xilium.CefGlue.Broker.Admin.exe`.
 3. Open **http://localhost:57402**, create the admin password and press **Start**.
 4. Clients open **`https://<host>:57443/broker`**. On a LAN you'll see a one-time warning for the self-signed certificate.
-5. For H.264 video (required for WebRTC): **Admin → Encoder Settings → openh264 → *Download from Cisco***, then Restart.
+5. For video (required for WebRTC), pick an encoder in **Admin → Encoder Settings**, then Restart: **vp9** works right away; for H.264, **openh264 → *Download from Cisco*** first.
 6. To stop everything, press **Ctrl+C** in the Admin console window. The Broker and all workers run in that window and stop with it.
 
 The release is self-contained: no .NET installation is needed. Its `README.txt` lists every port and
@@ -51,10 +53,11 @@ first-run prompt.
 
 ## Hardware
 
-- **CPU (server):** OpenH264 is a software encoder, so video encoding runs entirely on the CPU and
+- **CPU (server):** OpenH264 and VP9 are software encoders, so video encoding runs entirely on the CPU and
   each streaming session runs its own encoder. From our testing: **6 cores minimum, 8 or more
   recommended**, more for several sessions at once or high resolutions. The encoder uses up to
-  `min(cores, 8)` threads by default (Encoder Settings → *Thread cap*). JPG mode needs no video
+  `min(cores, 8)` threads by default, VP9 up to `min(cores, 6)` (Encoder Settings → *Thread cap*).
+  VP9 needs more CPU than OpenH264: on a 4-thread CPU, use OpenH264. JPG mode needs no video
   encoder but still costs CPU per frame.
 - **GPU (server):** not needed. *Disable GPU* is on by default.
 - **Viewer (client):** a browser with hardware H.264 decoding (any normal PC or phone) gives the
@@ -133,7 +136,7 @@ Worker, Broker and Admin run on `linux-x64`. The Linux native components (WebRTC
 - **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.3.1` writes `artifacts/CefAsService-v0.3.1-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). There is no ready-made Linux download yet. The natives are built for glibc 2.35 or newer.
 - **Run it:** the package's `README.txt` has the steps: ASP.NET Core 10 runtime, a few system libraries, `./setup-cef.sh` (downloads CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux, linux64 *minimal*), then `./run.sh`. `get-cef.ps1` is Windows-only.
 - **Transports and features:** WebSocket and WebRTC, Opus audio and session recording are included.
-- **Video:** JPG frames, or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
+- **Video:** JPG frames, VP9 (libvpx, included), or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*). VP9 is too heavy for a 4-thread laptop CPU; use OpenH264 there.
 - **Software only:** no GPU encoder. Without X11/Wayland the worker falls back to Chromium's headless backend.
 - Software encoding is CPU-bound: on a 4-thread laptop CPU, 1080p H.264 reaches roughly 30 fps and 720p is smooth.
 
@@ -162,7 +165,7 @@ cp CefGlue.Headless.Service/bin/x64/Release/net10.0/linux-x64/Xilium.CefGlue.Hea
 
 **Notes**
 
-- The prebuilt components in `lib/` (the `.so` natives for WebRTC, Opus, the recorder and the YUV converter, plus the managed Opus, WebRTC and OpenH264 plugin assemblies) are **binary only** (see `LICENSE-BINARY.txt`). You can rebuild everything else from source, but not these.
+- The prebuilt components in `lib/` (the `.so` natives for WebRTC, Opus, the recorder and the YUV converter, plus the managed Opus, WebRTC, OpenH264 and VP9 plugin assemblies) are **binary only** (see `LICENSE-BINARY.txt`). You can rebuild everything else from source, but not these.
 - `get-cef.ps1` is Windows-only. On Linux use the `setup-cef.sh` that ships in the package.
 - `run.sh` expects the package layout (`Admin/`, `Broker/`, `Worker/` side by side), so run the app from an unpacked package, not straight from the source tree.
 - `dotnet build <project> -c Release -p:Platform=x64 -r linux-x64` on its own is a quick compile check; it does not produce a runnable layout.
@@ -194,11 +197,11 @@ included.
 | NVIDIA NVENC | H.264, HEVC | hardware | Not shipped - needs more investigation on an RTX 40 series or newer. Tested on a Quadro P620: it can't keep up with heavy scrolling - laggy |
 | x265 | HEVC | software | Not shipped (license). Too slow in software for real time; HEVC needs a hardware encoder (QSV / NVENC) |
 | SVT-AV1 | AV1 | software | Not shipped. Too slow in software for real time; AV1 needs a hardware encoder (Intel Arc / Core Ultra, NVIDIA RTX 40+, AMD RX 7000+) - no AV1 hardware plugin yet |
-| libvpx | VP9 | software | On hold |
+| libvpx | VP9 | software | **Shipped** as a plugin, libvpx included (BSD). Heavier on the CPU than OpenH264 |
 
-What the viewer can play: H.264 works in Chrome and Edge (WebCodecs). HEVC needs a browser with
-hardware HEVC decoding and doesn't play in CEF-based viewers. WebRTC mode needs a video encoder;
-WebSocket mode can fall back to JPG.
+What the viewer can play: H.264 works in Chrome and Edge (WebCodecs). VP9 works in Chrome and Edge
+and also in CEF-based viewers (standard CEF builds have no H.264 or HEVC decoder). HEVC needs a browser with hardware HEVC
+decoding. WebRTC mode needs a video encoder; WebSocket mode can fall back to JPG.
 
 ### OpenH264
 
@@ -223,10 +226,22 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 - Worker pages run in a real browser on your server. Treat whoever reaches `/broker` as someone using that machine's network.
 - For public deployments, put a reverse proxy with a real certificate in front and use `--no-selfsigned-https`.
 - Workers run with media streaming enabled (needed for audio), so a page opened in a worker can use the **server's** microphone or camera without a prompt. On a server with a microphone, keep that in mind.
-- **DevTools** gives full control of a tab, including its cookies and storage in readable form. It is off by default; only switch it on for viewers you trust.
+- **DevTools** gives full control of a tab, including its cookies and storage in readable form. It is off by default; only switch it on for viewers you trust. Its default *restricted* profile blocks the DevTools (CDP) commands that could get around the browsing filter; *full* allows everything.
 - **Session recording** is off by default. Turning it on in Admin means accepting responsibility for how it is used on your server.
+- **Proxy:** page traffic goes through the proxy, but Chromium's own background services (component updates and similar) still connect directly, so the server's own IP is not fully hidden. SOCKS5 with a login is not supported (Chromium limitation). Free public proxies are often blocked or sent to CAPTCHAs by sites such as Google.
 
 ## Release history
+
+### v0.4.0
+
+- **Proxy support:** one proxy table in Admin (own *Proxy* tab) with a master switch, *Global* and *Manual* modes, a per-tab choice in Manual mode with `--isolation-mode-session` (pages opened from a tab inherit its proxy), proxy health in Admin, and logins answered on the server. Changing the proxy applies after a Broker restart, to every page.
+- **VP9 encoder included** on Windows and Linux (libvpx, no download needed).
+- **Browsing filter:** CAS's own ports, `file:` and a Deny list are blocked with HTTP 403; Allow list; log of what would be blocked.
+- **DevTools CDP gate:** *restricted* (default), *learn* and *full* profiles for the viewer's DevTools.
+- **Live settings:** recording and browsing-filter changes apply to running workers with *Apply now*, no restart.
+- **Admin:** limits on starting workers (total, sleeping, per address), sign-in lockout backoff (30 s, 5 min, 30 min), compact settings tabs.
+- Favicons are loaded through the tab's own browser (and proxy), not a separate HTTP client.
+- Broker-to-worker connections carry a per-run secret and signed tickets. Off by default (failures are only logged); **Admin → Transport → Require signed tickets** (or `CEFGLUE_REQUIRE_TICKET=1`) enforces them.
 
 ### v0.3.1
 
@@ -266,4 +281,4 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 
 - **Source code:** MIT. See `LICENSE` (CefGlue, Xilium/OutSystems) and the `LICENSE` file in each project folder.
 - **Prebuilt components in `lib/`:** free for personal and commercial use, binary only. See `LICENSE-BINARY.txt`.
-- **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264, SQLite, LAME) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.
+- **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264, libvpx, SQLite, LAME) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.

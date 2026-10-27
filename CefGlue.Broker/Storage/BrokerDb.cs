@@ -10,7 +10,7 @@ namespace Xilium.CefGlue.Broker.Storage
 {
     internal static class BrokerDb
     {
-        public const int SchemaVersion = 3;
+        public const int SchemaVersion = 5;
 
         public const string Settings = "settings";
         public const string AdminSettings = "admin_settings";
@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS tabs (
 CREATE TABLE IF NOT EXISTS revoked_tenants (
   tenant_id   TEXT PRIMARY KEY,
   revoked_utc INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tenant_proxy (
+  tenant_id    TEXT PRIMARY KEY,
+  proxy_id     TEXT NOT NULL,
+  assigned_utc INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS context_proxy (
+  context_id   TEXT PRIMARY KEY,
+  tenant_id    TEXT NOT NULL,
+  proxy_id     TEXT NOT NULL,
+  assigned_utc INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -153,9 +164,29 @@ CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
             "WebRtcPacingBps", "WebRtcIceServers", "SessionTimeoutSeconds", "ManifestTtlSeconds",
             "RecordingEnabled", "RecordingMaxConcurrent", "RecordingMaxMinutes", "RecordingWarningAcceptedAt", "RecordingLogDays",
             "DevToolsEnabled",
+            "MaxWorkers", "MaxSleeping", "MaxSpawnsInFlight", "MaxWorkersPerIp", "NewWorkersPerIpPerMinute",
+            "DevToolsProfile",
+            "FilterMode", "FilterEnforce", "FilterAllowHosts", "FilterDenyHosts", "FilterBlockFileScheme",
+            "ProxyEnabled", "ProxyGlobal", "ProxyGlobalId", "ProxyMode", "ProxyPool",
+            "RequireTickets",
         };
 
         public const string EncoderSettingsKey = "EncoderSettings";
+
+        public const string SettingsRevisionKey = "SettingsRevision";
+
+        public static readonly IReadOnlyDictionary<string, string> LiveKeys = new Dictionary<string, string>
+        {
+            ["RecordingEnabled"] = "CEFGLUE_RECORDING_ENABLED",
+            ["RecordingMaxConcurrent"] = "CEFGLUE_RECORDING_MAX_CONCURRENT",
+            ["RecordingMaxMinutes"] = "CEFGLUE_RECORDING_MAX_MINUTES",
+            ["RecordingLogDays"] = "CEFGLUE_RECORDING_LOG_DAYS",
+            ["FilterMode"] = "CEFGLUE_FILTER_MODE",
+            ["FilterEnforce"] = "CEFGLUE_FILTER_ENFORCE",
+            ["FilterAllowHosts"] = "CEFGLUE_FILTER_ALLOW_HOSTS",
+            ["FilterDenyHosts"] = "CEFGLUE_FILTER_DENY_HOSTS",
+            ["FilterBlockFileScheme"] = "CEFGLUE_FILTER_BLOCK_FILE",
+        };
 
         public static string Validate(IReadOnlyDictionary<string, string> fields, IReadOnlyDictionary<string, string> saved)
         {
@@ -174,7 +205,71 @@ CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
                     ? $"{label} must be a whole number from {min} to {max}."
                     : null;
 
-            return Range("RecordingMaxConcurrent", 1, 16, "Max recordings")
+            string Choice(string key, string label, params string[] allowed)
+                => fields.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) && !allowed.Contains(v, StringComparer.OrdinalIgnoreCase)
+                    ? $"{label} must be one of: {string.Join(", ", allowed)}."
+                    : null;
+
+            string Proxy(string key)
+                => fields.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) && !ProxyUrl.TryParse(v, out _, out var proxyError)
+                    ? proxyError
+                    : null;
+
+            string Effective(string key) => fields.TryGetValue(key, out var v) ? v : saved.GetValueOrDefault(key);
+            string Pool()
+            {
+                var poolText = Effective("ProxyPool");
+                if (!string.IsNullOrWhiteSpace(poolText) && !ProxyUrl.TryParsePool(poolText, out _, out var poolError))
+                {
+                    return poolError;
+                }
+
+                if (Effective("ProxyEnabled") == "1")
+                {
+                    if (string.Equals(Effective("ProxyMode"), "pool", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!ProxyUrl.TryParsePool(poolText, out var poolEntries, out _) || poolEntries.Count == 0)
+                        {
+                            return "Pool mode needs at least one proxy in the pool list (or switch the proxy off).";
+                        }
+                    }
+                    else
+                    {
+                        var globalId = Effective("ProxyGlobalId");
+                        var hasTable = ProxyUrl.TryParsePool(poolText, out var tableEntries, out _) && tableEntries.Count > 0;
+                        if (!string.IsNullOrWhiteSpace(globalId))
+                        {
+                            if (!hasTable || !tableEntries.Any(e => e.Id == globalId))
+                            {
+                                return "The global proxy is not in the table: choose one of its proxies (or switch the proxy off).";
+                            }
+                        }
+                        else if (string.IsNullOrWhiteSpace(Effective("ProxyGlobal")))
+                        {
+                            return hasTable
+                                ? "Choose the global proxy from the table (or switch the proxy off)."
+                                : "The proxy is switched on but the table has no proxy: add one and choose it as the global proxy (or switch the proxy off).";
+                        }
+                    }
+                }
+
+                return null;
+            }
+
+            return Proxy("ProxyGlobal")
+                ?? Choice("ProxyEnabled", "Proxy enabled", "0", "1")
+                ?? Choice("RequireTickets", "Require signed tickets", "0", "1")
+                ?? Choice("ProxyMode", "Proxy mode", "global", "pool")
+                ?? Pool()
+                ?? Choice("DevToolsProfile", "DevTools profile", "full", "learn", "restricted")
+                ?? Choice("FilterMode", "Filter mode", "Internal", "Off")
+                ?? Choice("FilterEnforce", "Filter enforcement", "log", "essential", "full")
+                ?? Range("MaxWorkers", 0, 100000, "Max workers")
+                ?? Range("MaxSleeping", 0, 100000, "Max sleeping")
+                ?? Range("MaxSpawnsInFlight", 0, 1000, "Max starting at once")
+                ?? Range("MaxWorkersPerIp", 0, 100000, "Max workers per address")
+                ?? Range("NewWorkersPerIpPerMinute", 0, 100000, "New workers per address per minute")
+                ?? Range("RecordingMaxConcurrent", 1, 16, "Max recordings")
                 ?? Range("RecordingMaxMinutes", 1, 24 * 60, "Max recording duration")
                 ?? Range("RecordingLogDays", 1, 3650, "Keep recording log");
         }
@@ -199,6 +294,9 @@ CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
                         rows.Add(new(key, string.IsNullOrEmpty(value) ? null : value));
                     }
                 }
+
+                var revision = long.TryParse(BrokerDb.AsString(current.GetValueOrDefault(SettingsRevisionKey)), out var previousRevision) ? previousRevision : 0;
+                rows.Add(new(SettingsRevisionKey, (revision + 1).ToString()));
 
                 if (encoderSettings != null)
                 {

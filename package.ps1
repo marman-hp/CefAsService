@@ -114,7 +114,7 @@ $worker = Join-Path $stage "Worker"
 # (framework-dependent) runtimeconfig.json in the worker root too - without its dll. CEF only runs
 # the self-contained copy in CefGlueBrowserProcess\; the stray one just shows "install .NET" if run.
 Get-ChildItem $worker -File -Filter "Xilium.CefGlue.BrowserProcess.*" | Remove-Item -Force
-foreach ($required in "runtimes\win-x64\native\libcef.dll", "CefGlueBrowserProcess\Xilium.CefGlue.BrowserProcess.exe", "plugins\encoders\openh264\plugin.json", "datachannel.dll", "opus.dll", "sqlite3.dll", "cefrec.dll", "libmp3lame.dll") {
+foreach ($required in "runtimes\win-x64\native\libcef.dll", "CefGlueBrowserProcess\Xilium.CefGlue.BrowserProcess.exe", "plugins\encoders\openh264\plugin.json", "plugins\encoders\vp9\plugin.json", "plugins\encoders\vp9\vpx.dll", "datachannel.dll", "opus.dll", "sqlite3.dll", "cefrec.dll", "libmp3lame.dll") {
     if (-not (Test-Path (Join-Path $worker $required))) { throw "Worker is missing $required." }
 }
 

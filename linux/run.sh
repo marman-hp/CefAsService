@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts the CAS Admin (which starts the Broker, which starts workers on demand).
 #   ./run.sh                         encoder from Admin (Encoder Settings; "unset" = JPG frames), WebSocket
-#   ENC=openh264 ./run.sh                force an encoder (openh264); without it, the one chosen in Admin applies
+#   ENC=openh264 ./run.sh                force an encoder (openh264 or vp9); without it, the one chosen in Admin applies
 #   ./run.sh --use-webrtc            WebRTC transport
 # Admin UI: http://127.0.0.1:57402/admin (this machine only)   Viewer: http://localhost:57400
 # Data: $CEFGLUE_CACHE_ROOT (default ~/.local/share/cefglue/cache), broker.db/logs/recordings sit beside it.

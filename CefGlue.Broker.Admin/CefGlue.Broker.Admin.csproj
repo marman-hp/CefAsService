@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <Compile Include="..\CefGlue.Headless.Service\ErrorLog.cs" Link="ErrorLog.cs" />
+    <Compile Include="..\CefGlue.Headless.Service\ProxyUrl.cs" Link="ProxyUrl.cs" />
     <Compile Include="..\CefGlue.Headless.Service\TenantCachePaths.cs" Link="TenantCachePaths.cs" />
     <Compile Include="..\CefGlue.Headless.Service\CefRecLibrary.cs" Link="CefRecLibrary.cs" />
     <Compile Include="..\CefGlue.Broker\Storage\Sqlite3Native.cs" Link="Storage\Sqlite3Native.cs" />

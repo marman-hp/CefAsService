@@ -1,122 +1,89 @@
 using System;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Net.Sockets;
 using System.Threading.Tasks;
 
 namespace Xilium.CefGlue.Headless.Service
 {
     internal static class FaviconFetcher
     {
-        private const int MaxBytes = 262_144;
+        private const uint MaxImageSize = 32;
 
-        private static readonly HttpClient _httpClient = new(new SocketsHttpHandler
+        public static async Task<string> TryFetchAsDataUriAsync(CefBrowserHost host, string[] iconUrls)
         {
-            AllowAutoRedirect = false,
-            ConnectTimeout = TimeSpan.FromSeconds(5),
-            ConnectCallback = async (context, cancellationToken) =>
+            if (host == null || iconUrls == null)
             {
-                var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, cancellationToken);
-                var address = addresses.FirstOrDefault(a => IsPublicAddress(a))
-                    ?? throw new SocketException((int)SocketError.HostNotFound);
+                return null;
+            }
 
-                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            foreach (var url in iconUrls)
+            {
+                if (string.IsNullOrEmpty(url))
+                {
+                    continue;
+                }
+
+                var scheme = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Scheme : null;
+                if (scheme != Uri.UriSchemeHttp && scheme != Uri.UriSchemeHttps && scheme != "data")
+                {
+                    continue;
+                }
+
+                if (scheme != "data" && AddressPolicy.Check(url).Block)
+                {
+                    Console.WriteLine($"[Filter] favicon not fetched (blocked address): {uri.Host}");
+                    continue;
+                }
+
+                var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                 try
                 {
-                    await socket.ConnectAsync(address, context.DnsEndPoint.Port, cancellationToken);
-                    return new NetworkStream(socket, ownsSocket: true);
+                    host.DownloadImage(url, true, MaxImageSize, false, new Callback(completion));
                 }
                 catch
                 {
-                    socket.Dispose();
-                    throw;
+                    continue;
                 }
-            },
-        })
-        {
-            Timeout = TimeSpan.FromSeconds(5),
-        };
 
-        public static async Task<string> TryFetchAsDataUriAsync(string url)
-        {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                return null;
+                var result = await Task.WhenAny(completion.Task, Task.Delay(TimeSpan.FromSeconds(8))) == completion.Task ? completion.Task.Result : null;
+                if (result != null)
+                {
+                    return result;
+                }
             }
 
-            try
-            {
-                using var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                if (response.Content.Headers.ContentLength is long declaredLength && declaredLength > MaxBytes)
-                {
-                    return null;
-                }
-
-                await using var stream = await response.Content.ReadAsStreamAsync();
-                using var buffer = new MemoryStream();
-                var chunk = new byte[8192];
-                int read;
-                while ((read = await stream.ReadAsync(chunk)) > 0)
-                {
-                    if (buffer.Length + read > MaxBytes)
-                    {
-                        return null;
-                    }
-                    buffer.Write(chunk, 0, read);
-                }
-
-                var contentType = response.Content.Headers.ContentType?.MediaType;
-                if (string.IsNullOrEmpty(contentType) || !contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-                {
-                    contentType = "image/x-icon";
-                }
-
-                return $"data:{contentType};base64,{Convert.ToBase64String(buffer.ToArray())}";
-            }
-            catch
-            {
-                return null;
-            }
+            return null;
         }
 
-        private static bool IsPublicAddress(IPAddress address)
+        private sealed class Callback : CefDownloadImageCallback
         {
-            if (address.IsIPv4MappedToIPv6)
-            {
-                address = address.MapToIPv4();
-            }
+            private readonly TaskCompletionSource<string> _done;
 
-            if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
-            {
-                return false;
-            }
+            public Callback(TaskCompletionSource<string> done) => _done = done;
 
-            if (address.AddressFamily == AddressFamily.InterNetwork)
+            protected override void OnDownloadImageFinished(string imageUrl, int httpStatusCode, CefImage image)
             {
-                var b = address.GetAddressBytes();
-                if (b[0] == 10) return false;
-                if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return false;
-                if (b[0] == 192 && b[1] == 168) return false;
-                if (b[0] == 169 && b[1] == 254) return false;
-                if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return false;
-                if (b[0] >= 224) return false;
-            }
-            else if (address.AddressFamily == AddressFamily.InterNetworkV6)
-            {
-                if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast) return false;
-                var b = address.GetAddressBytes();
-                if ((b[0] & 0xFE) == 0xFC) return false;
-            }
+                try
+                {
+                    byte[] best = null;
+                    var bestPixels = 0;
+                    foreach (var scale in new[] { 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f })
+                    {
+                        int width = 0, height = 0;
+                        using var png = image?.GetAsPng(scale, true, out width, out height);
+                        if (png != null && width * height > bestPixels)
+                        {
+                            bestPixels = width * height;
+                            best = png.ToArray();
+                        }
+                    }
 
-            return true;
+                    _done.TrySetResult(best is { Length: > 0 } ? "data:image/png;base64," + Convert.ToBase64String(best) : null);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Favicon] PNG conversion failed: {ex.Message}");
+                    _done.TrySetResult(null);
+                }
+            }
         }
     }
 }

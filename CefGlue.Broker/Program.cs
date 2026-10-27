@@ -47,6 +47,12 @@ namespace Xilium.CefGlue.Broker
 
         internal static int PlainHttpPort;
 
+        internal static string FilterReservedPorts = "";
+
+        internal static readonly string WorkerSecret = Xilium.CefGlue.Headless.Server.TicketAuth.GenerateSecret();
+
+        internal static bool RequireTickets => Environment.GetEnvironmentVariable("CEFGLUE_REQUIRE_TICKET") == "1";
+
         private static void ParseCommandLineArgs(string[] args, out bool cliPortMode, out bool disableSelfSignedHttps)
         {
             cliPortMode = false;
@@ -192,6 +198,11 @@ namespace Xilium.CefGlue.Broker
                 Environment.SetEnvironmentVariable("CEFGLUE_DISABLE_GPU", persistedSettings.DisableGpu);
             }
 
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CEFGLUE_REQUIRE_TICKET")) && persistedSettings.RequireTickets == "1")
+            {
+                Environment.SetEnvironmentVariable("CEFGLUE_REQUIRE_TICKET", "1");
+            }
+
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CEFGLUE_TEXTURE_ENABLE")) && !string.IsNullOrEmpty(persistedSettings.TextureEnable))
             {
                 Environment.SetEnvironmentVariable("CEFGLUE_TEXTURE_ENABLE", persistedSettings.TextureEnable);
@@ -271,6 +282,9 @@ namespace Xilium.CefGlue.Broker
             var localhostHttpsPort = int.TryParse(Environment.GetEnvironmentVariable("CEFGLUE_BROKER_LOCALHOST_HTTPS_PORT"), out var parsedLocalhostHttpsPort) ? parsedLocalhostHttpsPort : 7005;
             var trustedLocalhostCert = SelfSignedCertificate.TryLoadTrustedLocalhostCert();
 
+            var adminUiPort = int.TryParse(Environment.GetEnvironmentVariable("CEFGLUE_BROKER_ADMIN_UI_PORT"), out var parsedAdminUiPort) ? parsedAdminUiPort : 57402;
+            FilterReservedPorts = string.Join(",", new[] { port, httpsPort, localhostHttpsPort, adminPort, adminUiPort }.Distinct());
+
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
                 ContentRootPath = AppContext.BaseDirectory,
@@ -279,6 +293,9 @@ namespace Xilium.CefGlue.Broker
 
             builder.Services.Configure<Microsoft.Extensions.Hosting.HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(3));
             builder.Services.AddRazorPages();
+
+            Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions
+                .TryAddSingleton<IProxyAssigner, ConfiguredProxyAssigner>(builder.Services);
 
             builder.WebHost.ConfigureKestrel(options =>
             {
@@ -341,11 +358,13 @@ namespace Xilium.CefGlue.Broker
             var manifestTtlSeconds = int.TryParse(persistedSettings.ManifestTtlSeconds, out var parsedTtl) ? parsedTtl : 900;
             var manifestTtl = TimeSpan.FromSeconds(manifestTtlSeconds);
             ActiveManifestTtlSeconds = manifestTtlSeconds.ToString();
+            SpawnLimits.Load(persistedSettings);
             _ = new Timer(_ =>
             {
                 foreach (var tenantId in WorkerManifest.PruneStaleGoneEntries(manifestTtl))
                 {
                     Console.WriteLine($"[WorkerManifest] Pruned stale carcass entry for tenant '{tenantId}' - gone longer than {manifestTtl.TotalSeconds:F0}s with no respawn.");
+                    ProxyAssignments.Forget(tenantId);
                     DeleteTenantCache(tenantId);
                 }
             }, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
@@ -408,6 +427,8 @@ namespace Xilium.CefGlue.Broker
             Registry.Remove(tenantId);
             SpawnedProcesses.TryRemove(tenantId, out _);
             WorkerManifest.Remove(tenantId);
+            ProxyAssignments.Forget(tenantId);
+            ProxyHealth.Clear(tenantId);
             var cacheDeleted = await DeleteTenantCacheWithRetriesAsync(tenantId);
             Console.WriteLine($"[Broker] Tenant '{tenantId}' {reason} - tabs forgotten, cache deleted: {cacheDeleted}.");
             return cacheDeleted;

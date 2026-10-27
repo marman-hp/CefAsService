@@ -48,6 +48,44 @@ namespace Xilium.CefGlue.Headless.Server
         public Func<string, RecordingFile> ResolveRecording { get; set; }
 
         public int DevToolsPort { get; set; }
+
+        public string WorkerSecret { get; set; }
+
+        public string TenantId { get; set; }
+
+        public bool RequireTickets { get; set; }
+
+        private readonly TicketNonceCache _ticketNonces = new();
+
+        private bool CheckTicket(HttpContext context, string endpoint, string scope)
+        {
+            if (string.IsNullOrEmpty(WorkerSecret))
+            {
+                return true;
+            }
+
+            var ticket = context.Request.Headers[TicketAuth.HeaderName].ToString();
+            if (string.IsNullOrEmpty(ticket))
+            {
+                ticket = context.Request.Query["t"].ToString();
+            }
+
+            var result = TicketAuth.Verify(WorkerSecret, ticket, scope, TenantId, out var nonce, out var expires);
+            if (result == TicketResult.Ok && !_ticketNonces.TryConsume(nonce, expires))
+            {
+                result = TicketResult.Replayed;
+            }
+
+            if (result == TicketResult.Ok)
+            {
+                return true;
+            }
+
+            Console.WriteLine($"[Security] {endpoint}: ticket {result} from {context.Connection.RemoteIpAddress} - " +
+                (RequireTickets ? "REJECTED" : "allowed (log-only: Admin > Transport > Require signed tickets is off)"));
+            return !RequireTickets;
+        }
+
         public event Action Disconnected;
 
         public int HttpsPort { get; }
@@ -88,6 +126,12 @@ namespace Xilium.CefGlue.Headless.Server
             if (DevToolsPort <= 0 || peer == null || !IPAddress.IsLoopback(peer))
             {
                 context.Response.StatusCode = 404;
+                return;
+            }
+
+            if (!CheckTicket(context, "/devtools", TicketAuth.InternalScope))
+            {
+                context.Response.StatusCode = 401;
                 return;
             }
 
@@ -154,6 +198,12 @@ namespace Xilium.CefGlue.Headless.Server
 
         private async Task HandleRecordingDownload(HttpContext context, string id)
         {
+            if (!CheckTicket(context, "/recordings", TicketAuth.InternalScope))
+            {
+                context.Response.StatusCode = 401;
+                return;
+            }
+
             var file = ResolveRecording?.Invoke(id);
             if (file == null || !File.Exists(file.Path))
             {
@@ -211,6 +261,12 @@ namespace Xilium.CefGlue.Headless.Server
             if (!context.WebSockets.IsWebSocketRequest)
             {
                 context.Response.StatusCode = 400;
+                return;
+            }
+
+            if (!CheckTicket(context, "/frames", TicketAuth.ViewScope))
+            {
+                context.Response.StatusCode = 401;
                 return;
             }
 

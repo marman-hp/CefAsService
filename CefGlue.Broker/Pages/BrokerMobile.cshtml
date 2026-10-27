@@ -91,11 +91,12 @@
 
     <partial name="Shared/_SessionRestore" />
     <partial name="Shared/_IsolationEpoch" />
+    <partial name="Shared/_ProxyChoice" />
     @if (useWebRtc)
     {
         <script>window.CEFGLUE_ICE_SERVERS = @Html.Raw(Xilium.CefGlue.Broker.BrowserIceServers.Json());</script>
     }
-    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20261018c"></script>
+    <script src="@(useWebRtc ? "client.rtc.js" : "client.js")?v=20261026e"></script>
     <script>
         (function () {
             var KEYID_STORAGE_KEY = 'cefglue_keyid';
@@ -155,6 +156,23 @@
                     });
             }
 
+            function postAssign(keyId, proxyId) {
+                var body = {};
+                if (keyId) { body.keyId = keyId; }
+                if (proxyId) { body.proxyId = proxyId; }
+                return fetch('/assign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                }).then(function (response) {
+                    if (response.status !== 409) { return response; }
+                    return response.json().then(function (data) {
+                        if (!data || data.error !== 'choose-proxy') { throw new Error('Broker /assign failed: HTTP 409'); }
+                        return window.CefGlueProxyChoice.ask(data.options).then(function (id) { return postAssign(data.keyId, id); });
+                    });
+                });
+            }
+
             function resolveConnection() {
                 if (manualPort) {
                     return Promise.resolve({
@@ -173,16 +191,18 @@
                         return keyIdPromise;
                     })
                     .then(function (existingKeyId) {
-                        return fetch('/assign', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(existingKeyId ? { keyId: existingKeyId } : {}),
-                        });
+                        return postAssign(existingKeyId, null);
                     })
                     .then(function (response) {
                         if (response.status === 410) {
                             currentKeyId = null;
                             return window.CefGlueSessionRestore.showEnded(KEYID_STORAGE_KEY);
+                        }
+                        if (response.status === 503) {
+                            return response.json().then(function (data) {
+                                if (data && data.error === 'proxy') { return window.CefGlueProxyChoice.refused(data.message); }
+                                throw new Error('Broker /assign failed: HTTP 503');
+                            }, function () { throw new Error('Broker /assign failed: HTTP 503'); });
                         }
                         if (!response.ok) {
                             throw new Error('Broker /assign failed: HTTP ' + response.status);
@@ -216,7 +236,7 @@
 
                         return cachedAutoPortMode
                             ? {
-                                url: wsScheme + parts[0] + ':' + parts[1] + '/frames',
+                                url: wsScheme + parts[0] + ':' + parts[1] + '/frames' + (result.ticket ? '?t=' + encodeURIComponent(result.ticket) : ''),
                                 modeLabel: 'port',
                                 initialFrameFormat: cachedInitialFrameFormat,
                             }
@@ -228,7 +248,7 @@
                     });
             }
 
-            @(useWebRtc ? "CefGlueWebRtcClient" : "CefGlueClient")(resolveConnection, { sidebarCollapsed: true, sendDeviceUserAgent: true, overlaySidebar: true });
+            @(useWebRtc ? "CefGlueWebRtcClient" : "CefGlueClient")(resolveConnection, { sidebarCollapsed: true, sendDeviceUserAgent: true, overlaySidebar: true, beforeAddTab: function () { return window.CefGlueProxyChoice.forNewTab(currentKeyId); } });
         })();
     </script>
 </body>

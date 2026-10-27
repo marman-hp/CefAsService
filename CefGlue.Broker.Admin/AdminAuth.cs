@@ -11,12 +11,18 @@ namespace Xilium.CefGlue.Broker.Admin
         private const int SaltBytes = 16;
         private const int HashBytes = 32;
         private const int MaxFailures = 5;
-        private static readonly TimeSpan LockoutDuration = TimeSpan.FromSeconds(30);
+
+        private static readonly TimeSpan[] LockoutSteps = { TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(30) };
 
         private readonly AdminSettingsStore _settings;
         private readonly object _gate = new();
         private int _consecutiveFailures;
+        private int _lockoutLevel;
         private DateTime _lockedUntilUtc;
+        private bool _refusedWhileLockedLogged;
+        private int _failuresSinceSignIn;
+        private DateTime _lastFailureUtc;
+        private (int Count, DateTime LastFailureUtc)? _pendingNotice;
 
         public AdminAuth(AdminSettingsStore settings)
         {
@@ -77,17 +83,80 @@ namespace Xilium.CefGlue.Broker.Admin
             {
                 if (ok)
                 {
+                    if (_failuresSinceSignIn > 0)
+                    {
+                        _pendingNotice = (_failuresSinceSignIn, _lastFailureUtc);
+                    }
+
                     _consecutiveFailures = 0;
+                    _lockoutLevel = 0;
+                    _failuresSinceSignIn = 0;
+                    _refusedWhileLockedLogged = false;
                 }
-                else if (++_consecutiveFailures >= MaxFailures)
+                else
                 {
-                    _consecutiveFailures = 0;
-                    _lockedUntilUtc = DateTime.UtcNow + LockoutDuration;
-                    Console.WriteLine($"[Admin] {MaxFailures} failed login attempts - login locked for {LockoutDuration.TotalSeconds:F0}s.");
+                    _failuresSinceSignIn++;
+                    _lastFailureUtc = DateTime.UtcNow;
+                    _consecutiveFailures++;
+                    Console.WriteLine($"[Admin] Failed login attempt - {_consecutiveFailures} in a row, {_failuresSinceSignIn} since the last successful sign-in.");
+
+                    if (_consecutiveFailures >= MaxFailures)
+                    {
+                        var duration = LockoutSteps[Math.Min(_lockoutLevel, LockoutSteps.Length - 1)];
+                        _lockoutLevel++;
+                        _consecutiveFailures = 0;
+                        _lockedUntilUtc = DateTime.UtcNow + duration;
+                        _refusedWhileLockedLogged = false;
+                        Console.WriteLine($"[Admin] {MaxFailures} failed login attempts in a row - login locked for {FormatDuration(duration)} (lock #{_lockoutLevel} since the last successful sign-in).");
+                    }
                 }
             }
 
             return ok;
+        }
+
+        public void NoteRefusedWhileLocked()
+        {
+            lock (_gate)
+            {
+                if (_refusedWhileLockedLogged)
+                {
+                    return;
+                }
+
+                _refusedWhileLockedLogged = true;
+                Console.WriteLine("[Admin] Login attempt refused: the login is locked after repeated failures.");
+            }
+        }
+
+        public (int Count, DateTime LastFailureUtc)? PendingLoginNotice
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _pendingNotice;
+                }
+            }
+        }
+
+        public void AcknowledgeLoginNotice()
+        {
+            lock (_gate)
+            {
+                _pendingNotice = null;
+            }
+        }
+
+        public static string FormatDuration(TimeSpan span)
+        {
+            if (span.TotalSeconds < 90)
+            {
+                return $"{Math.Ceiling(span.TotalSeconds):0} seconds";
+            }
+
+            var minutes = (int)Math.Ceiling(span.TotalMinutes);
+            return minutes < 60 ? $"{minutes} minutes" : $"{minutes / 60} hour{(minutes / 60 == 1 ? "" : "s")}{(minutes % 60 == 0 ? "" : $" {minutes % 60} minutes")}";
         }
 
         public bool Verify(string password)

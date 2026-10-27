@@ -22,7 +22,7 @@ namespace Xilium.CefGlue.Broker
         }
 
         internal static Process SpawnWorker(string tenantId, string pageId, int port, string brokerWorkerUrl, string httpsCertPath,
-            List<TabManifestEntry> initialTabs = null, string initialSelectedTabId = null)
+            List<TabManifestEntry> initialTabs = null, string initialSelectedTabId = null, ProxyAssignment proxy = null)
         {
             if (string.IsNullOrEmpty(WorkerExePath))
             {
@@ -42,6 +42,31 @@ namespace Xilium.CefGlue.Broker
             startInfo.Environment["CEFGLUE_PAGE_ID"] = pageId;
             startInfo.Environment["CEFGLUE_PORT"] = port.ToString();
             startInfo.Environment["CEFGLUE_BROKER_URL"] = brokerWorkerUrl;
+            startInfo.Environment["CEFGLUE_WORKER_SECRET"] = Program.WorkerSecret;
+            startInfo.Environment["CEFGLUE_FILTER_RESERVED_PORTS"] = Program.FilterReservedPorts;
+
+            foreach (var name in new[] { "CEFGLUE_PROXY_URL", "CEFGLUE_PROXY_ID", "CEFGLUE_PROXY_USER", "CEFGLUE_PROXY_PASSWORD", "CEFGLUE_PROXY_PERTAB" })
+            {
+                startInfo.Environment.Remove(name);
+            }
+
+            var perTab = ProxyAssignments.PerTabChoiceApplies(BrokerSettings.Load());
+            if (perTab)
+            {
+                startInfo.Environment["CEFGLUE_PROXY_PERTAB"] = "1";
+            }
+            var contextProxies = perTab ? ProxyAssignments.ContextsOf(tenantId) : new Dictionary<string, string>();
+
+            if (proxy != null)
+            {
+                startInfo.Environment["CEFGLUE_PROXY_URL"] = proxy.Endpoint.Server;
+                startInfo.Environment["CEFGLUE_PROXY_ID"] = proxy.ProxyId;
+                if (proxy.Endpoint.HasCredentials)
+                {
+                    startInfo.Environment["CEFGLUE_PROXY_USER"] = proxy.Endpoint.User;
+                    startInfo.Environment["CEFGLUE_PROXY_PASSWORD"] = proxy.Endpoint.Password ?? "";
+                }
+            }
 
             if (!string.IsNullOrEmpty(Program.ActiveManifestTtlSeconds))
             {
@@ -51,7 +76,13 @@ namespace Xilium.CefGlue.Broker
             if (initialTabs is { Count: > 0 })
             {
                 startInfo.Environment["CEFGLUE_INITIAL_TABS"] =
-                    JsonSerializer.Serialize(initialTabs.Select(t => new { id = t.Id, url = t.Url, contextId = t.ContextId }));
+                    JsonSerializer.Serialize(initialTabs.Select(t => new
+                    {
+                        id = t.Id,
+                        url = t.Url,
+                        contextId = t.ContextId,
+                        proxyId = t.ContextId != null && contextProxies.TryGetValue(t.ContextId, out var tabProxy) ? tabProxy : null,
+                    }));
                 if (!string.IsNullOrEmpty(initialSelectedTabId))
                 {
                     startInfo.Environment["CEFGLUE_INITIAL_SELECTED_TAB_ID"] = initialSelectedTabId;

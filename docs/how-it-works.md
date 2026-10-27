@@ -87,13 +87,13 @@ Chosen when the Broker starts, the same for every tenant:
 
 | | WebSocket (default) | WebRTC (`--use-webrtc`) |
 |---|---|---|
-| Video | H.264 (OpenH264) or JPG frames | video track (OpenH264) |
+| Video | H.264 (OpenH264), VP9 or JPG frames | video track (OpenH264 or VP9) |
 | Audio | Opus | Opus audio track |
 | Input | same connection | data channel |
 | Network | one TCP connection; passes any proxy that supports WebSockets | usually UDP; needs a TURN server across NATs. The viewer shows the route: LAN, NAT or TURN |
 | Good for | simplicity, restrictive networks | lowest latency |
 
-OpenH264 is a one-click download from Cisco in Admin (it can't be bundled). Without a video encoder,
+VP9 is included; OpenH264 is a one-click download from Cisco in Admin (it can't be bundled). Without a video encoder,
 WebSocket sessions use JPG frames.
 
 **TURN for WebRTC across NATs.** On a LAN, WebRTC connects directly. A viewer behind another NAT

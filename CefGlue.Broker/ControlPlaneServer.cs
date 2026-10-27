@@ -134,6 +134,23 @@ namespace Xilium.CefGlue.Broker
                 case "listWorkers":
                 {
                     var manifest = WorkerManifest.GetAllByTenant();
+
+                    var proxySettings = BrokerSettings.Load();
+                    var proxyAssignments = string.Equals(proxySettings.ProxyMode, "pool", StringComparison.OrdinalIgnoreCase)
+                        ? ProxyAssignments.Load() : new Dictionary<string, string>();
+                    IReadOnlyList<Xilium.CefGlue.Headless.Service.ProxyPoolEntry> proxyPool = Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(proxySettings.ProxyPool, out var parsedPool, out _) ? parsedPool : new List<Xilium.CefGlue.Headless.Service.ProxyPoolEntry>();
+                    object ProxyFields(string tenantId)
+                    {
+                        var info = ProxyAssignments.Describe(tenantId, proxySettings, proxyAssignments, proxyPool);
+                        if (info == null)
+                        {
+                            return null;
+                        }
+
+                        var health = ProxyHealth.Get(tenantId);
+                        return new { id = info.Id, label = info.Label, state = health?.State, detail = health?.Detail };
+                    }
+
                     var running = Program.Registry.GetAll()
                         .Select(w => new
                         {
@@ -148,6 +165,7 @@ namespace Xilium.CefGlue.Broker
                             createdUtc = manifest.TryGetValue(w.TenantId, out var m) ? m.CreatedUtc : null,
                             clientIp = m?.ClientIp,
                             clientOs = m?.ClientOs,
+                            proxy = ProxyFields(w.TenantId),
                         })
                         .ToList();
 
@@ -167,6 +185,7 @@ namespace Xilium.CefGlue.Broker
                             createdUtc = e.CreatedUtc,
                             clientIp = e.ClientIp,
                             clientOs = e.ClientOs,
+                            proxy = ProxyFields(e.TenantId),
                         });
 
                     var workers = running.Concat(sleeping).OrderBy(w => w.tenantId);
@@ -265,6 +284,7 @@ namespace Xilium.CefGlue.Broker
                     ["ConnectionMode"] = Program.ActiveConnectionMode,
                     ["AudioBitrateKbps"] = Env("CEFGLUE_OPUS_BITRATE_KBPS"),
                     ["DisableGpu"] = Env("CEFGLUE_DISABLE_GPU"),
+                    ["RequireTickets"] = Env("CEFGLUE_REQUIRE_TICKET"),
                     ["TextureEnable"] = Env("CEFGLUE_TEXTURE_ENABLE"),
                     ["DiskCacheSizeBytes"] = Env("CEFGLUE_DISK_CACHE_SIZE_BYTES"),
                     ["MediaCacheSizeBytes"] = Env("CEFGLUE_MEDIA_CACHE_SIZE_BYTES"),
@@ -274,6 +294,11 @@ namespace Xilium.CefGlue.Broker
                     ["WebRtcIceServers"] = Env("CEFGLUE_WEBRTC_ICE_SERVERS"),
                     ["SessionTimeoutSeconds"] = Env("CEFGLUE_ABANDON_GRACE_SECONDS"),
                     ["ManifestTtlSeconds"] = Program.ActiveManifestTtlSeconds,
+                    ["MaxWorkers"] = SpawnLimits.Current.MaxWorkers.ToString(),
+                    ["MaxSleeping"] = SpawnLimits.Current.MaxSleeping.ToString(),
+                    ["MaxSpawnsInFlight"] = SpawnLimits.Current.MaxSpawnsInFlight.ToString(),
+                    ["MaxWorkersPerIp"] = SpawnLimits.Current.MaxWorkersPerIp.ToString(),
+                    ["NewWorkersPerIpPerMinute"] = SpawnLimits.Current.NewWorkersPerIpPerMinute.ToString(),
                     ["EncoderSettings"] = KnownEncoderSettingEnvVars
                         .Where(name => !string.IsNullOrEmpty(Env(name)))
                         .ToDictionary(name => name, Env),

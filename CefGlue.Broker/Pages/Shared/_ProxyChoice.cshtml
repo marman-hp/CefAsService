@@ -1,0 +1,117 @@
+<script>
+    window.CefGlueProxyChoice = (function () {
+        function overlayWith(titleText, bodyText, buttons) {
+            var overlay = document.createElement('div');
+            overlay.setAttribute('role', 'alertdialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;' +
+                'padding:16px;background:rgba(8,10,14,0.78);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;';
+
+            var card = document.createElement('div');
+            card.style.cssText = 'max-width:440px;width:100%;box-sizing:border-box;background:#1c2129;color:#e6e9ee;' +
+                'border:1px solid #2a323d;border-radius:12px;padding:22px 24px;box-shadow:0 12px 40px rgba(0,0,0,0.5);';
+
+            var title = document.createElement('div');
+            title.style.cssText = 'font-size:17px;font-weight:600;margin-bottom:8px;';
+            title.textContent = titleText;
+
+            var body = document.createElement('p');
+            body.style.cssText = 'margin:0 0 16px;color:#8b96a3;';
+            body.textContent = bodyText;
+
+            var actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+            var first = null;
+            buttons.forEach(function (spec) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.textContent = spec.label;
+                b.style.cssText = 'padding:10px 16px;border:1px solid #2a323d;border-radius:6px;background:#242b35;color:#e6e9ee;' +
+                    'font-size:15px;text-align:left;cursor:pointer;';
+                b.addEventListener('click', function () {
+                    overlay.remove();
+                    spec.onClick();
+                });
+                actions.appendChild(b);
+                if (!first) { first = b; }
+            });
+
+            card.appendChild(title);
+            card.appendChild(body);
+            if (buttons.length > 0) { card.appendChild(actions); }
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+            if (first) { first.focus(); }
+        }
+
+        return {
+            ask: function (options) {
+                return new Promise(function (resolve) {
+                    overlayWith(
+                        'Choose a proxy for this session',
+                        'This session keeps using it, so its address stays the same. To use another one later, end the session and start a new one.',
+                        (options || []).map(function (o) {
+                            return {
+                                label: o.label,
+                                onClick: function () { resolve(o.id); },
+                            };
+                        }));
+                });
+            },
+
+            forNewTab: function (keyId) {
+                function post(proxyId) {
+                    return fetch('/tab-proxy', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(proxyId ? { keyId: keyId, proxyId: proxyId } : { keyId: keyId }),
+                    }).then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); });
+                }
+                function fail(message) {
+                    return new Promise(function (resolve) {
+                        overlayWith('This tab cannot start', message, [{ label: 'Close', onClick: function () { resolve(null); } }]);
+                    });
+                }
+                return post().then(function (first) {
+                    if (first.status === 503 || first.status === 404) {
+                        return fail((first.data && first.data.message) || 'No proxy is available.');
+                    }
+                    if (!first.data || !first.data.choose) { return {}; }
+                    return new Promise(function (resolve) {
+                        var options = (first.data.options || []).map(function (o) {
+                            return { label: o.label, onClick: function () { resolve(o.id); } };
+                        });
+                        options.push({ label: 'Cancel', onClick: function () { resolve(null); } });
+                        overlayWith('Choose a proxy for this tab', 'Pages opened from this tab keep using the same one.', options);
+                    }).then(function (id) {
+                        if (!id) { return null; }
+                        return post(id).then(function (second) {
+                            if (second.status === 200 && second.data && second.data.ticket) {
+                                return { contextId: second.data.contextId, proxyId: second.data.proxyId, ticket: second.data.ticket };
+                            }
+                            return fail((second.data && second.data.message) || 'That proxy is not available any more.');
+                        });
+                    });
+                }).catch(function () { return fail('The server could not be reached.'); });
+            },
+
+            refused: function (message) {
+                overlayWith('This session cannot start', message || 'No proxy is available.', []);
+                return new Promise(function () { });
+            },
+
+            showLabel: function (label) {
+                var row = document.getElementById('proxyRow');
+                var value = document.getElementById('proxyValue');
+                if (!row || !value) { return; }
+                if (label) {
+                    value.textContent = label;
+                    row.style.display = 'flex';
+                } else {
+                    row.style.display = 'none';
+                }
+            },
+        };
+    })();
+</script>

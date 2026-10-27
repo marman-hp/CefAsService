@@ -137,6 +137,28 @@ namespace Xilium.CefGlue.Broker.Storage
                     r => (Id: r.GetString(0), Utc: FromMs(r.GetInt64(1)).Value))
                 .ToDictionary(t => t.Id, t => t.Utc);
 
+        public static Dictionary<string, string> LoadProxyAssignments() =>
+            Db.Query("SELECT tenant_id, proxy_id FROM tenant_proxy", r => (Tenant: r.GetString(0), Proxy: r.GetString(1)))
+                .ToDictionary(t => t.Tenant, t => t.Proxy);
+
+        public static void SetProxyAssignment(string tenantId, string proxyId) =>
+            Persist("ProxyAssignments", db => db.Execute(
+                "INSERT OR REPLACE INTO tenant_proxy (tenant_id, proxy_id, assigned_utc) VALUES (?, ?, ?)", tenantId, proxyId, ToMs(DateTime.UtcNow)));
+
+        public static Dictionary<string, string> LoadContextProxies(string tenantId) =>
+            Db.Query("SELECT context_id, proxy_id FROM context_proxy WHERE tenant_id = ?", r => (Context: r.GetString(0), Proxy: r.GetString(1)), tenantId)
+                .ToDictionary(t => t.Context, t => t.Proxy);
+
+        public static void SetContextProxy(string contextId, string tenantId, string proxyId) =>
+            Persist("ContextProxies", db => db.Execute(
+                "INSERT OR REPLACE INTO context_proxy (context_id, tenant_id, proxy_id, assigned_utc) VALUES (?, ?, ?, ?)", contextId, tenantId, proxyId, ToMs(DateTime.UtcNow)));
+
+        public static void ForgetContextProxies(string tenantId) =>
+            Persist("ContextProxies", db => db.Execute("DELETE FROM context_proxy WHERE tenant_id = ?", tenantId));
+
+        public static void ForgetProxyAssignment(string tenantId) =>
+            Persist("ProxyAssignments", db => db.Execute("DELETE FROM tenant_proxy WHERE tenant_id = ?", tenantId));
+
         public static void SaveRevoked(Dictionary<string, DateTime> all, string added, IReadOnlyCollection<string> removed) =>
             Persist("RevokedTenants", db => db.Transaction(() =>
             {

@@ -50,6 +50,12 @@ namespace Xilium.CefGlue.Headless.Service
                     using var socket = new ClientWebSocket();
                     _socket = socket;
 
+                    var workerSecret = Environment.GetEnvironmentVariable("CEFGLUE_WORKER_SECRET");
+                    if (!string.IsNullOrEmpty(workerSecret))
+                    {
+                        socket.Options.SetRequestHeader("X-CefGlue-Worker-Secret", workerSecret);
+                    }
+
                     await socket.ConnectAsync(new Uri(_brokerUrl), _cts.Token);
 
                     await SendAsync(socket, JsonSerializer.Serialize(new
@@ -74,6 +80,7 @@ namespace Xilium.CefGlue.Headless.Service
                             sessions = _getSessionCount(),
                             tabs = tabs.Select(t => new { id = t.Id, url = t.Url, contextId = t.ContextId }),
                             selectedTabId = selectedTabId,
+                            proxy = WorkerProxy.HeartbeatPayload(),
                         }));
 
                         await Task.Delay(HeartbeatInterval, _cts.Token);

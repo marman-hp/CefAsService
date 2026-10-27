@@ -29,6 +29,8 @@ namespace Xilium.CefGlue.Headless.Service
 
         internal static VideoQuality DefaultH264Quality { get; private set; }
 
+        internal static string CachePath { get; private set; }
+
         internal static string TenantId { get; private set; }
         internal static string PageId { get; private set; }
 
@@ -48,7 +50,12 @@ namespace Xilium.CefGlue.Headless.Service
 
             [System.Text.Json.Serialization.JsonPropertyName("contextId")]
             public string ContextId { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("proxyId")]
+            public string ProxyId { get; set; }
         }
+
+        internal static string StartSettingsRevision { get; private set; }
 
         private static void ApplyBrokerSettingsFromDatabase()
         {
@@ -58,6 +65,8 @@ namespace Xilium.CefGlue.Headless.Service
                 using var db = Xilium.CefGlue.Broker.Storage.BrokerDb.OpenReadOnly(path);
                 var saved = Xilium.CefGlue.Broker.Storage.BrokerDb.ReadJson(db, Xilium.CefGlue.Broker.Storage.BrokerDb.Settings);
                 string Saved(string key) => Xilium.CefGlue.Broker.Storage.BrokerDb.AsString(saved.GetValueOrDefault(key));
+
+                StartSettingsRevision = Saved(Xilium.CefGlue.Broker.Storage.BrokerSettingsWriter.SettingsRevisionKey);
 
                 void Apply(string envVarName, string value)
                 {
@@ -77,6 +86,11 @@ namespace Xilium.CefGlue.Headless.Service
                 Apply("CEFGLUE_WEBRTC_ICE_SERVERS", Saved("WebRtcIceServers"));
                 Apply("CEFGLUE_RECORDING_ENABLED", Saved("RecordingEnabled"));
             Apply("CEFGLUE_DEVTOOLS_ENABLED", Saved("DevToolsEnabled"));
+                Apply("CEFGLUE_FILTER_MODE", Saved("FilterMode"));
+                Apply("CEFGLUE_FILTER_ENFORCE", Saved("FilterEnforce"));
+                Apply("CEFGLUE_FILTER_ALLOW_HOSTS", Saved("FilterAllowHosts"));
+                Apply("CEFGLUE_FILTER_DENY_HOSTS", Saved("FilterDenyHosts"));
+                Apply("CEFGLUE_FILTER_BLOCK_FILE", Saved("FilterBlockFileScheme"));
                 Apply("CEFGLUE_RECORDING_MAX_CONCURRENT", Saved("RecordingMaxConcurrent"));
                 Apply("CEFGLUE_RECORDING_MAX_MINUTES", Saved("RecordingMaxMinutes"));
                 Apply("CEFGLUE_RECORDING_LOG_DAYS", Saved("RecordingLogDays"));
@@ -246,6 +260,7 @@ namespace Xilium.CefGlue.Headless.Service
                 ? Path.Combine(TenantCachePaths.Root(AppContext.BaseDirectory), TenantCachePaths.TenantDirName(TenantId), PageId)
                 : Path.Combine(AppContext.BaseDirectory, "cef_temp");
 
+            CachePath = cachePath;
             _deleteCacheOnExit = !isTenantScoped;
 
             AppDomain.CurrentDomain.ProcessExit += delegate { Cleanup(cachePath, _deleteCacheOnExit); };
@@ -333,6 +348,12 @@ namespace Xilium.CefGlue.Headless.Service
                 Console.WriteLine($"[Program] GPU on (Linux): software compositing + GPU raster/decode ({(waylandSession ? "Wayland" : "X11")} session).");
             }
 
+            WorkerProxy.LoadFromEnvironment();
+            if (WorkerProxy.NeedsLoginPromptOff)
+            {
+                flags.Add(KeyValuePair.Create("disable-chrome-login-prompt", ""));
+            }
+
             var extraFlags = Environment.GetEnvironmentVariable("CEFGLUE_CEF_FLAGS");
             if (!string.IsNullOrWhiteSpace(extraFlags))
             {
@@ -376,9 +397,23 @@ namespace Xilium.CefGlue.Headless.Service
             var h264ProfileLevelId = webRtcVideoCodec == WebRtcVideoCodec.H264 ? SelectedEncoderPlugin?.H264ProfileLevelId(EncoderPluginSettings) : null;
             IFrameTransport transport = useWebRtc ? new WebRtcTransport(frameSocketServer, webRtcVideoCodec, h264ProfileLevelId) : frameSocketServer;
 
+            AddressPolicy.ConfigureFromEnvironment();
+            AddressPolicy.AddReservedPorts(new[] { port, frameSocketServer.HttpsPort, devToolsPort });
+            Console.WriteLine($"[Filter] Browsing filter: mode {AddressPolicy.Mode}, enforcement {AddressPolicy.Enforcement} " +
+                "(LogOnly = nothing refused; Essential = CAS ports, file: and the Deny list get HTTP 403; Full = every internal address too); " +
+                $"CAS ports on this machine: {string.Join(",", AddressPolicy.ReservedPorts.OrderBy(p => p))}. Turn off: CEFGLUE_FILTER_MODE=Off.");
+
             var sessions = new SessionManager(transport, () => frameSocketServer.ViewerIp);
+
+            var liveSettings = new LiveSettingsWatcher(
+                Xilium.CefGlue.Broker.Storage.BrokerDb.PathFor(AppContext.BaseDirectory), StartSettingsRevision,
+                new[] { port, frameSocketServer.HttpsPort, devToolsPort }, sessions.OnLiveSettingsChanged);
+            liveSettings.Start();
             frameSocketServer.ResolveRecording = sessions.ResolveRecording;
             frameSocketServer.DevToolsPort = devToolsPort;
+            frameSocketServer.WorkerSecret = Environment.GetEnvironmentVariable("CEFGLUE_WORKER_SECRET");
+            frameSocketServer.TenantId = Environment.GetEnvironmentVariable("CEFGLUE_TENANT_ID");
+            frameSocketServer.RequireTickets = Environment.GetEnvironmentVariable("CEFGLUE_REQUIRE_TICKET") == "1";
             transport.MessageReceived += sessions.HandleMessage;
 
             transport.Connected += sessions.OnFrameClientConnected;
@@ -397,7 +432,7 @@ namespace Xilium.CefGlue.Headless.Service
                 foreach (var tab in initialTabs)
                 {
                     var url = string.IsNullOrEmpty(tab.Url) || SessionManager.IsScriptUrl(tab.Url) ? sessions.AddressBarValue : tab.Url;
-                    var sessionId = sessions.AddBrowser(url, existingId: tab.Id, existingContextId: tab.ContextId);
+                    var sessionId = sessions.AddBrowser(url, existingId: tab.Id, existingContextId: tab.ContextId, contextProxy: WorkerProxy.ResolveForRestoredTab(tab.ProxyId));
                     firstSessionId ??= sessionId;
 
                     if (!string.IsNullOrEmpty(selectedTabId) && sessionId == selectedTabId)

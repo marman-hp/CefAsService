@@ -15,5 +15,17 @@ namespace Xilium.CefGlue.Broker.Admin
         public DateTime? CreatedUtc { get; set; }
         public string ClientIp { get; set; }
         public string ClientOs { get; set; }
+
+        public WorkerProxyInfo Proxy { get; set; }
+    }
+
+    internal sealed class WorkerProxyInfo
+    {
+        public string Id { get; set; }
+        public string Label { get; set; }
+        public string State { get; set; }
+        public string Detail { get; set; }
+
+        public bool Failing => State is "authFailed" or "unreachable";
     }
 }

@@ -107,7 +107,20 @@ namespace Xilium.CefGlue.Headless.Service
                 switch (action)
                 {
                     case "add":
-                        Select(AddBrowser(Program.NewPageUsesLastUrl ? GetString(root, "url") : Program.DefaultUrl));
+                        var addUrl = Program.NewPageUsesLastUrl ? GetString(root, "url") : Program.DefaultUrl;
+                        if (WorkerProxy.PerTab && _isolation != null)
+                        {
+                            if (!WorkerProxy.TryAuthorizeTab(GetString(root, "ticket"), GetString(root, "contextId"), GetString(root, "proxyId"), out var tabProxy, out var refusal))
+                            {
+                                Console.WriteLine($"[Proxy] New tab refused: {refusal}");
+                                break;
+                            }
+
+                            Select(AddBrowser(addUrl, existingContextId: GetString(root, "contextId"), contextProxy: tabProxy));
+                            break;
+                        }
+
+                        Select(AddBrowser(addUrl));
                         break;
 
                     case "remove":
@@ -303,7 +316,7 @@ namespace Xilium.CefGlue.Headless.Service
 
         private readonly HeadlessPopupLifeSpanHandler _popupLifeSpanHandler;
 
-        public string AddBrowser(string url, string existingId = null, string existingContextId = null)
+        public string AddBrowser(string url, string existingId = null, string existingContextId = null, ProxyEndpoint contextProxy = null)
         {
             if (string.IsNullOrWhiteSpace(url))
             {
@@ -318,7 +331,11 @@ namespace Xilium.CefGlue.Headless.Service
             {
                 contextId = IsolationContextStore.IsValidContextId(existingContextId) ? existingContextId
                     : IsolationContextStore.NewContextId();
-                requestContextFactory = () => _isolation.GetOrCreate(contextId);
+                requestContextFactory = () => _isolation.GetOrCreate(contextId, contextProxy);
+            }
+            else
+            {
+                requestContextFactory = WorkerProxy.GetTenantContext;
             }
 
             var browser = CreateHeadlessBrowser(requestContextFactory: requestContextFactory);
@@ -385,6 +402,9 @@ namespace Xilium.CefGlue.Headless.Service
             browser.LoadStart += (s, e) => HandleUrlChanged(session, e.Frame);
             browser.LoadEnd += (s, e) => HandleUrlChanged(session, e.Frame);
 
+            browser.LoadError += (s, e) => WorkerProxy.NoteLoadError(e.ErrorCode);
+            browser.LoadEnd += (s, e) => WorkerProxy.NoteLoadEnd(e.HttpStatusCode);
+
             browser.AddressChanged += (s, url) => UpdateCurrentUrl(session, url);
 
             browser.TitleChanged += (s, title) =>
@@ -396,25 +416,24 @@ namespace Xilium.CefGlue.Headless.Service
 
             browser.FaviconUrlsChanged += (s, iconUrls) =>
             {
-                var iconUrl = (iconUrls != null && iconUrls.Length > 0) ? iconUrls[0] : null;
                 session.FaviconUrl = "";
                 PushState();
 
-                if (iconUrl == null)
+                if (iconUrls == null || iconUrls.Length == 0)
                 {
                     return;
                 }
 
                 var sid = session.Id;
-                Task.Run(async () =>
+                var host = session.Browser.GetBrowserHost();
+                _ = FaviconFetcher.TryFetchAsDataUriAsync(host, iconUrls).ContinueWith(t =>
                 {
-                    var dataUri = await FaviconFetcher.TryFetchAsDataUriAsync(iconUrl);
-                    if (dataUri != null && !_disposed && _sessions.TryGetValue(sid, out var s2))
+                    if (t.Result != null && !_disposed && _sessions.TryGetValue(sid, out var s2))
                     {
-                        s2.FaviconUrl = dataUri;
+                        s2.FaviconUrl = t.Result;
                         PushState();
                     }
-                });
+                }, TaskContinuationOptions.OnlyOnRanToCompletion);
             };
 
             var downloadHandler = new HeadlessDownloadHandler();
@@ -1400,7 +1419,7 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
-            var newId = AddBrowser("view-source:" + currentUrl);
+            var newId = AddBrowser("view-source:" + currentUrl, existingContextId: session.ContextId);
             Select(newId);
         }
 
@@ -2192,6 +2211,7 @@ namespace Xilium.CefGlue.Headless.Service
                         url = s.CurrentUrl,
                         title = s.Title,
                         faviconUrl = s.FaviconUrl,
+                        proxy = WorkerProxy.LabelOfContext(s.ContextId),
                         contextId = s.ContextId,
                         contextIndex = _isolation?.GetIndex(s.ContextId),
                         isPopup = s.IsPopup,
@@ -2243,6 +2263,42 @@ namespace Xilium.CefGlue.Headless.Service
             }
 
             session.ViewMode = mode;
+            PushState();
+        }
+
+        internal void OnLiveSettingsChanged()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!RecordingSettings.Enabled)
+                {
+                    var stopped = 0;
+                    foreach (var session in _sessions.Values.ToArray())
+                    {
+                        if (session.Recorder is { } recorder)
+                        {
+                            FinishRecording(session, recorder);
+                            stopped++;
+                        }
+                    }
+
+                    if (stopped > 0)
+                    {
+                        Console.WriteLine($"[Settings] Recording was turned off by the administrator - {stopped} running recording(s) stopped and offered for download.");
+                        SendRecording(new { type = "recording", state = "unavailable", message = "Recording was stopped by the administrator" });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Append(ErrorLog.ServiceFileName, AppContext.BaseDirectory, "Live settings (recording stop): " + ex);
+            }
+
             PushState();
         }
 

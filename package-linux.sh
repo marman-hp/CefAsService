@@ -45,7 +45,7 @@ find "$STAGE" -name 'libopenh264*' -type f -print -delete | sed 's/^/Leaving out
 
 W="$STAGE/Worker"
 for required in Xilium.CefGlue.Headless.Service CefGlueBrowserProcess/Xilium.CefGlue.BrowserProcess \
-                plugins/encoders/openh264/plugin.json libdatachannel.so libopus.so cefrec.so libmp3lame.so; do
+                plugins/encoders/openh264/plugin.json plugins/encoders/vp9/plugin.json plugins/encoders/vp9/libvpx.so libdatachannel.so libopus.so cefrec.so libmp3lame.so; do
   [ -e "$W/$required" ] || { echo "Worker is missing $required" >&2; exit 1; }
 done
 

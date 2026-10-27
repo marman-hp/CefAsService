@@ -50,6 +50,18 @@
         </form>
     </div>
 
+    @if (Auth.PendingLoginNotice is { } loginNotice)
+    {
+        <div class="warning-banner warning-banner-error" role="alert">
+            <div>
+                <strong>@loginNotice.Count failed sign-in attempt@(loginNotice.Count == 1 ? "" : "s") since you last signed in</strong>
+                (the last one at @loginNotice.LastFailureUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")). If that was not you, change the Admin
+                password on the Admin Password tab and check that this page is only reachable from this machine.
+            </div>
+            <button class="btn" @onclick="Auth.AcknowledgeLoginNotice">Dismiss</button>
+        </div>
+    }
+
     @if (_isolationSwitch is { } isolationSwitch && isolationSwitch.AtUtc != _dismissedIsolationSwitchAtUtc)
     {
         <div class="warning-banner @(isolationSwitch.WipeOk ? "" : "warning-banner-error")" role="alert">
@@ -178,7 +190,6 @@
                     </label>
                     <span>@(_selectedDevToolsEnabled ? "Desktop viewers get DevTools in the menu, per tab" : "Off - no DevTools, no debugging port")</span>
                 </div>
-
                 <div class="encoder-audio-row">
                     <label for="disk-cache-size-input">Disk Cache Size</label>
                     <input id="disk-cache-size-input" type="number" min="0" step="1"
@@ -424,6 +435,26 @@
                         <button type="button" class="btn" @onclick="ResetIceServersToDefault">Reset to defaults</button>
                     </div>
                 }
+
+                <div class="encoder-audio-row">
+                    <label class="checkbox-option">
+                        <input id="require-tickets-input" type="checkbox" checked="@_selectedRequireTickets"
+                               @onchange="@(e => _selectedRequireTickets = (bool)e.Value)" />
+                        Require signed tickets
+                    </label>
+                </div>
+                <div class="setting-hint">
+                    What it protects: every worker opens its own port. Without signed tickets, anyone who can reach that port can
+                    watch and control the session's browser, open its DevTools (cookies, logins) or download its recordings, without
+                    going through the Broker. With them, the Broker checks the viewer first and then signs a short-lived ticket for
+                    that one session and that one use; the worker refuses anything else. The secret behind the signature is new on
+                    every Broker start.
+                </div>
+                <div class="setting-hint">
+                    On: requests without a valid ticket are refused. Off: they are only logged as "allowed (log-only...)" - check that
+                    log before switching it on. Switch it on when CAS is reachable by other people (LAN, VPS, tunnel). Applies on the
+                    next Start/Restart. A CEFGLUE_REQUIRE_TICKET environment variable wins over this setting.
+                </div>
             </div>
         </div>
         </div>
@@ -482,6 +513,180 @@
         </div>
         </div>
 
+        <div class="settings-tab-page" hidden="@(_settingsTab != 8)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3 5h18l-7 8v6l-4 2v-8z"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Browsing filter</div>
+                        <div class="encoder-subtitle">
+                            <span>What the remote browser may open. A refused address gets HTTP 403 "Blocked by the server administrator". Apply takes effect within seconds, no restart.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label for="filter-mode-input">Filter</label>
+                    <select id="filter-mode-input" @onchange="@(e => _selectedFilterMode = (string)e.Value)">
+                        <option value="Internal" selected="@(_selectedFilterMode != "Off")">On (block internal addresses)</option>
+                        <option value="Off" selected="@(_selectedFilterMode == "Off")">Off (the browser may open anything - not for public servers)</option>
+                    </select>
+                </div>
+                @if (_selectedFilterMode == "Off")
+                {
+                    <div class="error" role="note">With the filter off, anyone who can open a tab can make this server's browser read its own local services (including this Admin page) and local files.</div>
+                }
+
+                <div class="encoder-audio-row">
+                    <label for="filter-enforce-input">Enforcement</label>
+                    <select id="filter-enforce-input" disabled="@(_selectedFilterMode == "Off")" @onchange="@(e => _selectedFilterEnforce = (string)e.Value)">
+                        <option value="essential" selected="@(_selectedFilterEnforce == "essential")">Essential (CAS's own ports, local files, Deny list)</option>
+                        <option value="full" selected="@(_selectedFilterEnforce == "full")">Full (also loopback, private, link-local and similar addresses)</option>
+                        <option value="log" selected="@(_selectedFilterEnforce == "log")">Log only (nothing is refused - to look for false positives)</option>
+                    </select>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label class="checkbox-option">
+                        <input type="checkbox" checked="@_selectedFilterBlockFile" disabled="@(_selectedFilterMode == "Off")"
+                               @onchange="@(e => _selectedFilterBlockFile = (bool)e.Value)" />
+                        Block local files (file:)
+                    </label>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="filter-allow-input">Allow</label>
+                    <textarea id="filter-allow-input" rows="4" spellcheck="false" placeholder="one per line, e.g. intranet.example.com or 10.0.0.5:8080 or *.corp.test"
+                              disabled="@(_selectedFilterMode == "Off")"
+                              @oninput="@(e => _selectedFilterAllow = (string)e.Value)">@_selectedFilterAllow</textarea>
+                    <span>exceptions to the internal-address rule. Never reopens CAS's own ports.</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="filter-deny-input">Deny</label>
+                    <textarea id="filter-deny-input" rows="4" spellcheck="false" placeholder="one per line - always refused"
+                              disabled="@(_selectedFilterMode == "Off")"
+                              @oninput="@(e => _selectedFilterDeny = (string)e.Value)">@_selectedFilterDeny</textarea>
+                    <span>extra hosts to refuse, same syntax as Allow.</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <label for="devtools-profile-input">DevTools commands</label>
+                    <select id="devtools-profile-input" value="@DevToolsProfileShown" @onchange="@(e => OnDevToolsProfileChanged((string)e.Value))">
+                        <option value="restricted">Restricted (default; allow-list, the rest is refused)</option>
+                        <option value="learn">Learn (nothing is refused; the methods used are logged)</option>
+                        <option value="full">Full (nothing is checked)</option>
+                    </select>
+                    <span>what a viewer's DevTools may send to this server's browser. A change closes open DevTools connections.</span>
+                </div>
+                @if (_confirmFullDevTools)
+                {
+                    <div class="error" role="alert">
+                        Switch to Full? DevTools can then bypass the browsing filter above (open tabs the filter never sees, fetch internal addresses) and attach local files of this server to a page. Only do this on a server nobody else can reach.
+                        <div class="encoder-audio-row">
+                            <button class="btn" @onclick="ConfirmFullDevTools">Yes, use Full</button>
+                            <button class="btn" @onclick="CancelFullDevTools">Cancel</button>
+                        </div>
+                    </div>
+                }
+                else if (DevToolsProfileNormalized == "full")
+                {
+                    <div class="error" role="note">Full: DevTools can bypass the filter above and read local files. Restricted is the recommended setting.</div>
+                }
+                else if (DevToolsProfileNormalized == "restricted")
+                {
+                    <div class="error" role="note">Restricted: built from real DevTools use. A DevTools feature whose command is not on the list is refused; the Broker log (and devtools-learn.log in Learn) names it.</div>
+                }
+
+                <div class="encoder-audio-row">
+                    <button class="btn" @onclick="ApplyLiveSettingsAsync">Apply now</button>
+                    @if (_liveApplyMessage != null)
+                    {
+                        <span class="@(_liveApplyError ? "error" : null)" role="status">@_liveApplyMessage</span>
+                    }
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <div class="settings-tab-page" hidden="@(_settingsTab != 7)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 20V10 M10 20V4 M16 20v-7 M22 20H2"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Limits</div>
+                        <div class="encoder-subtitle">
+                            <span>How many workers this server may run - 0 means unlimited. The administrator is responsible for the server's resources.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label>This server</label>
+                    <span>
+                        <strong>@Environment.ProcessorCount</strong> logical processors (threads) &middot;
+                        <strong>@FormatBytes(TotalMemoryBytes)</strong> RAM
+                    </span>
+                </div>
+                <div class="encoder-audio-row">
+                    <label>Right now</label>
+                    <span>
+                        <strong>@_workers.Count(w => w.Status != "Sleeping")</strong> workers running &middot;
+                        <strong>@_workers.Count(w => w.Status == "Sleeping")</strong> sleeping &middot;
+                        CAS processes use <strong>@FormatBytes(_casWorkingSetBytes)</strong>
+                        @if (_workers.Count(w => w.Status != "Sleeping") is > 0 and var running)
+                        {
+                            <text>(about <strong>@FormatBytes(_casWorkingSetBytes / running)</strong> per running worker, all its tabs included)</text>
+                        }
+                    </span>
+                </div>
+                <div class="encoder-audio-row">
+                    <label>Rule of thumb</label>
+                    <span>
+                        Software video encoding (VP9, OpenH264, x264) takes roughly 1 to 3 threads per <em>active</em> stream - with
+                        @Environment.ProcessorCount threads that is about @(Math.Max(1, Environment.ProcessorCount / 3)) to @Environment.ProcessorCount workers streaming at once.
+                        Idle tabs cost RAM, not CPU, so also watch the memory figure above.
+                    </span>
+                </div>
+
+                @foreach (var field in LimitFields)
+                {
+                    <div class="encoder-audio-row">
+                        <label for="limit-@field.Key">@field.Label</label>
+                        <input id="limit-@field.Key" type="number" min="0" step="1"
+                               value="@_selectedLimits.GetValueOrDefault(field.Key)"
+                               @oninput="@(e => _selectedLimits[field.Key] = (string)e.Value)" />
+                        <span>@field.Help (default @LimitDefault(field.Key))</span>
+                    </div>
+                }
+                @if (LimitsPending)
+                {
+                    <div class="error" role="note">Changed - restart the Broker to apply.</div>
+                }
+            </div>
+        </div>
+        </div>
+
         <div class="settings-tab-page" hidden="@(_settingsTab != 6)">
         <div class="encoder-settings">
             <div class="encoder-header">
@@ -497,7 +702,7 @@
                     <div>
                         <div class="encoder-title">Recording</div>
                         <div class="encoder-subtitle">
-                            <span>Viewer session recording (MP4 video, MP3 audio) - applies to workers started after saving</span>
+                            <span>Viewer session recording (MP4 video, MP3 audio) - Apply now takes effect in running workers within seconds</span>
                         </div>
                     </div>
                 </div>
@@ -553,6 +758,15 @@
                            value="@_selectedRecordingLogDays"
                            @oninput="@(e => _selectedRecordingLogDays = (string)e.Value)" />
                     <span>days - who recorded what (IP, time, page) behind each recording ID; older rows are deleted (default 90)</span>
+                </div>
+
+                <div class="encoder-audio-row">
+                    <button class="btn" @onclick="ApplyLiveSettingsAsync">Apply now</button>
+                    @if (_liveApplyMessage != null)
+                    {
+                        <span class="@(_liveApplyError ? "error" : null)" role="status">@_liveApplyMessage</span>
+                    }
+                    <span>no restart needed; turning recording off stops running recordings and offers them for download</span>
                 </div>
 
                 <div class="encoder-audio-row recording-lookup-row">
@@ -681,6 +895,174 @@
         </div>
         </div>
 
+        <div class="settings-tab-page" hidden="@(_settingsTab != 9)">
+        <div class="encoder-settings">
+            <div class="encoder-header">
+                <div class="encoder-heading">
+                    <div class="encoder-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 12h16M13 6l7 6-7 6M4 6v12"
+                                  fill="none" stroke="currentColor"
+                                  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div class="encoder-title">Proxy</div>
+                        <div class="encoder-subtitle">
+                            <span>The address each session's browser goes out from. Saved with Start/Restart; used by every session started afterwards (a running session keeps its proxy until it is ended with Kill or times out). If a proxy is down or refuses the login, pages fail - there is never a fall back to a direct connection.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="encoder-body" style="flex-direction: column;">
+                <div class="encoder-audio-row" style="margin-top: 0; padding-top: 0; border-top: none;">
+                    <label class="checkbox-option">
+                        <input id="proxy-enabled-input" type="checkbox" checked="@_selectedProxyEnabled" @onchange="@(e => _selectedProxyEnabled = (bool)e.Value)" />
+                        Use a proxy
+                    </label>
+                    <span>@(_selectedProxyEnabled ? "On: sessions started after the next Start/Restart go out through the proxy set here." : "Off: every session connects directly from this server. Anything filled in before is kept, hidden and not used.")</span>
+                </div>
+                @if (_selectedProxyEnabled)
+                {
+                <div class="encoder-audio-row">
+                    <label for="proxy-mode-input">Mode</label>
+                    <select id="proxy-mode-input" value="@_selectedProxyMode" @onchange="@(e => OnProxyModeChanged((string)e.Value))">
+                        <option value="global">Global - one proxy from the table for every session</option>
+                        <option value="pool">Manual - each session's user picks one from the table</option>
+                    </select>
+                    <span>@(_selectedProxyMode == "pool" ? "A new session asks its user to pick a proxy from the table; the pick is kept until the session ends." : "You choose one proxy of the table below; every session uses it.")</span>
+                </div>
+                @if (_selectedProxyMode != "pool")
+                {
+                    <div class="encoder-audio-row">
+                        <label for="proxy-global-input">Global proxy</label>
+                        <select id="proxy-global-input" value="@GlobalIndex" @onchange="@(e => OnGlobalChosen((string)e.Value))">
+                            <option value="-1">(choose one from the table)</option>
+                            @for (var g = 0; g < _poolRows.Count; g++)
+                            {
+                                <option value="@g">@(string.IsNullOrWhiteSpace(_poolRows[g].Label) ? $"Proxy {g + 1}" : _poolRows[g].Label) - @_poolRows[g].Type.ToUpperInvariant() @_poolRows[g].Host:@_poolRows[g].Port</option>
+                            }
+                        </select>
+                        <span>Every session's browser goes out through this proxy.</span>
+                    </div>
+                    @if (_poolRows.Count == 0)
+                    {
+                        <div class="error" role="note">The table has no proxy yet: add one below, then choose it here.</div>
+                    }
+                    else if (_poolGlobal == null)
+                    {
+                        <div class="error" role="note">Choose the global proxy from the table (the settings cannot be saved without it).</div>
+                    }
+                }
+                    <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+                        <div style="font-weight: 600; text-transform: uppercase; font-size: 0.8em; letter-spacing: 0.04em;">Proxies (@_poolRows.Count)</div>
+
+                        <div class="table-scroll" style="min-height: 150px; max-height: 320px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 6px;">
+                            <table aria-label="Proxies in the pool" style="width: 100%; min-width: 560px;">
+                                <thead>
+                                    <tr><th style="width: 48px;">#</th><th style="width: 90px;">Type</th><th>Address</th><th style="width: 160px;">Login</th><th style="width: 200px;">Label</th>@if (_selectedProxyMode != "pool") {<th style="width: 90px;">Global</th>}</tr>
+                                </thead>
+                                <tbody>
+                                    @for (var i = 0; i < _poolRows.Count; i++)
+                                    {
+                                        var r = _poolRows[i];
+                                        var number = i + 1;
+                                        <tr class="pool-row" aria-selected="@(ReferenceEquals(r, _poolSelected) ? "true" : "false")" style="cursor: pointer; @(ReferenceEquals(r, _poolSelected) ? "background: rgba(224, 151, 90, 0.20);" : "")"
+                                            @onclick="() => SelectPoolRow(r)">
+                                            <td class="mono">@number</td>
+                                            <td>@r.Type.ToUpperInvariant()</td>
+                                            <td class="mono">@r.Host:@r.Port</td>
+                                            <td>@(string.IsNullOrEmpty(r.User) ? "-" : r.User)</td>
+                                            <td>@(string.IsNullOrWhiteSpace(r.Label) ? $"Proxy {number}" : r.Label)</td>
+                                            @if (_selectedProxyMode != "pool")
+                                            {
+                                                <td>@(ReferenceEquals(r, _poolGlobal) ? "Global" : "")</td>
+                                            }
+                                        </tr>
+                                    }
+                                    @if (_poolRows.Count == 0)
+                                    {
+                                        <tr><td colspan="@(_selectedProxyMode != "pool" ? 6 : 5)" class="empty">No proxy in the table yet. Fill in the form below and press Add.</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        @if (_selectedProxyEnabled && _selectedProxyMode == "pool" && _poolRows.Count == 0)
+                        {
+                            <div class="error" role="note">Manual mode needs at least one proxy in the table before the settings can be saved (or switch the proxy off).</div>
+                        }
+                        @if (PoolListError() is { } poolError)
+                        {
+                            <div class="error" role="note">@poolError</div>
+                        }
+
+                        <div style="font-size: 0.85em; opacity: 0.8;">@(_poolSelected == null ? "Add a proxy" : "Edit the selected proxy")</div>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                            <select aria-label="Proxy type" style="width: 105px;" value="@_poolDraft.Type" @onchange="@(e => _poolDraft.Type = (string)e.Value)">
+                                <option value="http">HTTP</option>
+                                <option value="https">HTTPS</option>
+                                <option value="socks5">SOCKS5</option>
+                            </select>
+                            <input type="text" aria-label="Proxy host" placeholder="host" spellcheck="false" style="flex: 1 1 200px; min-width: 150px;"
+                                   value="@_poolDraft.Host" @oninput="@(e => _poolDraft.Host = (string)e.Value)" />
+                            <input type="number" aria-label="Proxy port" placeholder="port" min="1" max="65535" style="width: 90px;"
+                                   value="@_poolDraft.Port" @oninput="@(e => _poolDraft.Port = (string)e.Value)" />
+                            <input type="text" aria-label="Proxy user name" placeholder="user (optional)" autocomplete="off" spellcheck="false" style="flex: 0 1 150px; min-width: 110px;"
+                                   disabled="@(_poolDraft.Type == "socks5")" value="@_poolDraft.User" @oninput="@(e => _poolDraft.User = (string)e.Value)" />
+                            <input type="password" aria-label="Proxy password" placeholder="password" autocomplete="new-password" style="flex: 0 1 150px; min-width: 110px;"
+                                   disabled="@(_poolDraft.Type == "socks5")" value="@_poolDraft.Password" @oninput="@(e => _poolDraft.Password = (string)e.Value)" />
+                            <input type="text" aria-label="Label shown to the user" placeholder="label" spellcheck="false" style="flex: 0 1 170px; min-width: 110px;"
+                                   value="@_poolDraft.Label" @oninput="@(e => _poolDraft.Label = (string)e.Value)" />
+                        </div>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                            @if (_poolSelected == null)
+                            {
+                                <button type="button" class="btn" @onclick="AddOrUpdatePoolRow">Add</button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn" @onclick="AddOrUpdatePoolRow">Update</button>
+                                <button type="button" class="btn btn-danger" @onclick="DeletePoolRow">Delete</button>
+                                <button type="button" class="btn" @onclick="CancelPoolEdit">Cancel</button>
+                            }
+                            <button type="button" class="btn" @onclick="() => _showPoolImport = !_showPoolImport">@(_showPoolImport ? "Close" : "Add many...")</button>
+                        </div>
+                        @if (_poolFormError != null)
+                        {
+                            <div class="error" role="note">@_poolFormError</div>
+                        }
+                        @if (_showPoolImport)
+                        {
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <span>"Add many" takes one proxy per line as <span class="mono">host:port</span>, <span class="mono">user:password@host:port</span> or a full <span class="mono">http://...</span> address, each optionally followed by <span class="mono"># label</span>; lines without a scheme get the type chosen here.</span>
+                                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                    <span>Type of the lines without a scheme:</span>
+                                    <select aria-label="Type for imported lines" style="width: 105px;" value="@_poolImportType" @onchange="@(e => _poolImportType = (string)e.Value)">
+                                        <option value="http">HTTP</option>
+                                        <option value="https">HTTPS</option>
+                                        <option value="socks5">SOCKS5</option>
+                                    </select>
+                                </div>
+                                <textarea rows="6" spellcheck="false" autocomplete="off" aria-label="Proxies to add, one per line"
+                                          placeholder="one per line: 203.0.113.5:8080 # label"
+                                          @oninput="@(e => _poolImportText = (string)e.Value)">@_poolImportText</textarea>
+                                <div style="display: flex; gap: 6px;">
+                                    <button type="button" class="btn" @onclick="ImportPoolLines">Add these</button>
+                                </div>
+                                @if (_poolImportError != null)
+                                {
+                                    <div class="error" role="note">@_poolImportError</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+        </div>
+
         <div class="settings-tab-page" hidden="@(_settingsTab != 5)">
         <div class="encoder-settings">
             <div class="encoder-header">
@@ -795,6 +1177,38 @@
     <section class="panel">
         <h2>Workers (@_workers.Count(w => w.Status != "Sleeping") running, @_workers.Count(w => w.Status == "Sleeping") sleeping)</h2>
 
+        @if (ProxyRows() is { Count: > 0 } proxyRows)
+        {
+            <h3>Proxies</h3>
+            <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Proxy</th><th>Address</th><th>Sessions</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in proxyRows)
+                    {
+                        <tr>
+                            <td>@row.Label</td>
+                            <td class="mono">@row.Address</td>
+                            <td class="mono">@row.Sessions</td>
+                            <td>
+                                @if (row.Failing > 0)
+                                {
+                                    <span class="pill degraded">@row.Failing failing</span>
+                                }
+                                else
+                                {
+                                    <span class="pill healthy">ok</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+
         @if (_workers.Count == 0)
         {
             <p class="empty">No workers or sleeping sessions right now.</p>
@@ -807,6 +1221,7 @@
                     <tr>
                         <th>Tenant</th>
                         <th>Status</th>
+                        <th>Proxy</th>
                         <th>Address</th>
                         <th>CPU</th>
                         <th>Sessions</th>
@@ -823,6 +1238,24 @@
                         <tr>
                             <td class="mono">@worker.TenantId</td>
                             <td><span class="pill @(worker.Status == "Healthy" ? "healthy" : worker.Status == "Sleeping" ? "sleeping" : "degraded")">@worker.Status</span></td>
+                            <td>
+                                @if (worker.Proxy == null)
+                                {
+                                    <span>-</span>
+                                }
+                                else
+                                {
+                                    <span>@worker.Proxy.Label</span>
+                                    @if (worker.Proxy.Failing)
+                                    {
+                                        <span class="pill degraded" title="@worker.Proxy.Detail">@(worker.Proxy.State == "authFailed" ? "login refused" : "unreachable")</span>
+                                    }
+                                    else if (worker.Proxy.State == "ok")
+                                    {
+                                        <span class="pill healthy">ok</span>
+                                    }
+                                }
+                            </td>
                             <td class="mono">@(worker.Status == "Sleeping" ? "-" : worker.Address)</td>
                             <td class="mono">@(worker.Status == "Sleeping" ? "-" : worker.Cpu.ToString("F1") + "%")</td>
                             <td class="mono">@worker.Sessions</td>
@@ -981,6 +1414,9 @@
     private string _activeAudioBitrateKbps;
     private string _pendingAudioBitrateKbps;
     private bool _selectedDisableGpu;
+    private bool _selectedRequireTickets;
+    private string _activeRequireTickets;
+    private bool _requireTicketsSeeded;
     private string _activeDisableGpu;
     private string _pendingDisableGpu;
     private bool _disableGpuSeeded;
@@ -1229,13 +1665,17 @@
     {
         _selectedEncoder, _selectedMode, SelectedEncoderSettingsForSave(), _selectedAudioBitrateKbps, _selectedWebRtcPacingBps, _selectedWebRtcIceServers,
         !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0", _selectedTextureEnable ? "1" : "", _selectedDiskCacheSizeBytes, _selectedMediaCacheSizeBytes,
+        _selectedRequireTickets ? "1" : "0",
         _selectedSessionTimeoutSeconds, _selectedManifestTtlSeconds,
         string.IsNullOrWhiteSpace(_selectedDefaultUrl) ? "" : _selectedDefaultUrl, _selectedNewPageUseLastUrl ? "1" : "0",
         _selectedRecordingEnabled ? "1" : "0", _selectedRecordingMaxConcurrent, _selectedRecordingMaxMinutes, _recordingWarningAcceptedAt, _selectedRecordingLogDays,
         _selectedDevToolsEnabled ? "1" : "0",
+        string.Join(",", LimitFields.Select(f => _selectedLimits.GetValueOrDefault(f.Key) ?? "")),
+        _selectedFilterMode, _selectedFilterEnforce, _selectedFilterAllow, _selectedFilterDeny, _selectedFilterBlockFile ? "1" : "0", _selectedDevToolsProfile,
+        GlobalIdNow(), _selectedProxyMode, ComposedPool(), _selectedProxyEnabled,
     });
 
-    private bool HasChangesToSave => _savedSnapshot == null || SaveSnapshot() != _savedSnapshot;
+    private bool HasChangesToSave => _savedSnapshot == null || SaveSnapshot() != _savedSnapshot || ProxyPending;
     private DateTime _reloadLoadingSinceUtc;
 
     private void SetReloadPhase(string phase)
@@ -1416,6 +1856,7 @@
     private bool ShowPendingManifestTtlNote => Norm(_selectedManifestTtlSeconds) != (Norm(_activeManifestTtlSeconds) ?? "900");
 
     private bool ShowPendingDisableGpuNote => _selectedDisableGpu != (_activeDisableGpu == "1");
+    private bool ShowPendingRequireTicketsNote => _requireTicketsSeeded && _selectedRequireTickets != (_activeRequireTickets == "1");
 
     private bool ShowPendingTextureEnableNote => (_selectedTextureEnable ? "1" : null) != Norm(_activeTextureEnable);
 
@@ -1428,23 +1869,457 @@
     private bool ShowPendingNewPageUseLastUrlNote => (_selectedNewPageUseLastUrl ? "1" : "0") != (Norm(_activeNewPageUseLastUrl) ?? "1");
 
     private int _settingsTab;
-    private static readonly string[] SettingsTabNames = { "CEF Settings", "Encoder Settings", "Transport", "Session & Cleanup", "Executables", "Admin Password", "Recording" };
+    private static readonly string[] SettingsTabNames = { "CEF Settings", "Encoder Settings", "Transport", "Session & Cleanup", "Executables", "Admin Password", "Recording", "Limits", "Browsing filter", "Proxy" };
+
+    private string _selectedFilterMode;
+    private string _selectedFilterEnforce;
+    private string _selectedFilterAllow;
+    private string _selectedFilterDeny;
+    private bool _selectedFilterBlockFile = true;
+    private string _selectedDevToolsProfile;
+    private bool _confirmFullDevTools;
+
+    private bool _proxySeeded;
+    private bool _selectedProxyEnabled;
+    private string _savedProxyEnabled;
+    private string _savedProxyMode, _savedProxyPool, _savedProxyGlobal, _savedProxyGlobalId;
+
+    private PoolRow _poolGlobal;
+
+    private string GlobalIndex => _poolGlobal == null ? "-1" : _poolRows.IndexOf(_poolGlobal).ToString();
+
+    private void OnGlobalChosen(string index)
+        => _poolGlobal = int.TryParse(index, out var i) && i >= 0 && i < _poolRows.Count ? _poolRows[i] : null;
+
+    private string GlobalIdNow()
+        => _poolGlobal != null && Xilium.CefGlue.Headless.Service.ProxyUrl.TryParse(RowUrl(_poolGlobal), out var endpoint, out _)
+            ? Xilium.CefGlue.Headless.Service.ProxyUrl.IdOf(endpoint)
+            : "";
+
+    private sealed record ProxyRow(string Label, string Address, int Sessions, int Failing);
+
+    private List<ProxyRow> ProxyRows()
+    {
+        var rows = new List<ProxyRow>();
+        if (_savedProxyEnabled != "1")
+        {
+            return rows;
+        }
+
+        if (string.Equals(_savedProxyMode, "pool", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(_savedProxyPool, out var pool, out _))
+            {
+                foreach (var entry in pool)
+                {
+                    var on = _workers.Where(w => w.Proxy?.Id == entry.Id).ToList();
+                    rows.Add(new ProxyRow(entry.Label, entry.Endpoint.Server, on.Count, on.Count(w => w.Proxy.Failing)));
+                }
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(_savedProxyGlobalId))
+        {
+            if (Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(_savedProxyPool, out var globalPool, out _)
+                && globalPool.FirstOrDefault(p => p.Id == _savedProxyGlobalId) is { } chosen)
+            {
+                var on = _workers.Where(w => w.Proxy?.Id == chosen.Id).ToList();
+                rows.Add(new ProxyRow(chosen.Label, chosen.Endpoint.Server, on.Count, on.Count(w => w.Proxy.Failing)));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(_savedProxyGlobal) && Xilium.CefGlue.Headless.Service.ProxyUrl.TryParse(_savedProxyGlobal, out var endpoint, out _))
+        {
+            var on = _workers.Where(w => w.Proxy?.Id == "global").ToList();
+            rows.Add(new ProxyRow("Global proxy", endpoint.Server, on.Count, on.Count(w => w.Proxy.Failing)));
+        }
+
+        return rows;
+    }
+
+    private string _selectedProxyMode = "global";
+
+    private sealed class PoolRow
+    {
+        public string Type = "http";
+        public string Host = "";
+        public string Port = "";
+        public string User = "";
+        public string Password = "";
+        public string Label = "";
+    }
+
+    private readonly List<PoolRow> _poolRows = new();
+    private bool _showPoolImport;
+    private string _poolImportType = "http";
+    private string _poolImportText = "";
+    private string _poolImportError;
+
+    private static bool RowBlank(PoolRow r)
+        => string.IsNullOrWhiteSpace(r.Host) && string.IsNullOrWhiteSpace(r.Port) && string.IsNullOrEmpty(r.User) && string.IsNullOrEmpty(r.Password) && string.IsNullOrWhiteSpace(r.Label);
+
+    private static string RowUrl(PoolRow r)
+    {
+        var login = string.IsNullOrEmpty(r.User) || r.Type == "socks5"
+            ? ""
+            : $"{Uri.EscapeDataString(r.User)}:{Uri.EscapeDataString(r.Password ?? "")}@";
+        var host = (r.Host ?? "").Trim();
+        return $"{r.Type}://{login}{(host.Contains(':') && !host.StartsWith('[') ? $"[{host}]" : host)}:{(r.Port ?? "").Trim()}";
+    }
+
+    private string ComposedPool() => string.Join("\n", _poolRows.Where(r => !RowBlank(r)).Select(r =>
+        RowUrl(r) + (string.IsNullOrWhiteSpace(r.Label) ? "" : " # " + r.Label.Trim().Replace('\r', ' ').Replace('\n', ' '))));
+
+    private static string RowError(PoolRow r)
+    {
+        if (RowBlank(r))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(r.Host))
+        {
+            return "This proxy needs a host.";
+        }
+
+        return Xilium.CefGlue.Headless.Service.ProxyUrl.TryParse(RowUrl(r), out _, out var error) ? null : error;
+    }
+
+    private string PoolListError()
+    {
+        if (_poolRows.Any(r => RowError(r) != null))
+        {
+            return null;
+        }
+
+        return Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(ComposedPool(), out _, out var error) ? null : error;
+    }
+
+    private PoolRow _poolDraft = new();
+    private PoolRow _poolSelected;
+    private string _poolFormError;
+
+    private static PoolRow CopyOf(PoolRow r) => new() { Type = r.Type, Host = r.Host, Port = r.Port, User = r.User, Password = r.Password, Label = r.Label };
+
+    private void ResetPoolForm()
+    {
+        _poolDraft = new PoolRow();
+        _poolSelected = null;
+        _poolFormError = null;
+    }
+
+    private void SelectPoolRow(PoolRow row)
+    {
+        _poolSelected = row;
+        _poolDraft = CopyOf(row);
+        _poolFormError = null;
+    }
+
+    private void CancelPoolEdit() => ResetPoolForm();
+
+    private void DeletePoolRow()
+    {
+        if (_poolSelected != null)
+        {
+            if (ReferenceEquals(_poolSelected, _poolGlobal))
+            {
+                _poolGlobal = null;
+            }
+
+            _poolRows.Remove(_poolSelected);
+        }
+
+        ResetPoolForm();
+    }
+
+    private void AddOrUpdatePoolRow()
+    {
+        if (RowBlank(_poolDraft))
+        {
+            _poolFormError = "Fill in the host and port of the proxy first.";
+            return;
+        }
+
+        var error = RowError(_poolDraft);
+        if (error == null)
+        {
+            var others = _poolRows.Where(r => !ReferenceEquals(r, _poolSelected)).Select(r => RowUrl(r)).Append(RowUrl(_poolDraft));
+            if (!Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(string.Join("\n", others), out _, out var poolError))
+            {
+                error = "That host and port is already in the pool.";
+                _ = poolError;
+            }
+        }
+
+        if (error != null)
+        {
+            _poolFormError = error;
+            return;
+        }
+
+        if (_poolSelected == null)
+        {
+            var added = CopyOf(_poolDraft);
+            _poolRows.Add(added);
+            _poolGlobal ??= added;
+        }
+        else
+        {
+            var index = _poolRows.IndexOf(_poolSelected);
+            var wasGlobal = ReferenceEquals(_poolRows[index], _poolGlobal);
+            _poolRows[index] = CopyOf(_poolDraft);
+            if (wasGlobal)
+            {
+                _poolGlobal = _poolRows[index];
+            }
+        }
+
+        ResetPoolForm();
+    }
+
+    private void OnProxyModeChanged(string mode) => _selectedProxyMode = mode;
+
+    private void ImportPoolLines()
+    {
+        var lines = (_poolImportText ?? "").Replace("\r", "").Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .Select(l => l.Contains("://", StringComparison.Ordinal) ? l : $"{_poolImportType}://{l}")
+            .ToList();
+        if (lines.Count == 0)
+        {
+            _poolImportError = "Paste at least one proxy.";
+            return;
+        }
+
+        if (!Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(string.Join("\n", lines), out var entries, out var error))
+        {
+            _poolImportError = error;
+            return;
+        }
+
+        _poolRows.RemoveAll(RowBlank);
+        foreach (var entry in entries)
+        {
+            var imported = new PoolRow
+            {
+                Type = entry.Endpoint.Scheme,
+                Host = entry.Endpoint.Host,
+                Port = entry.Endpoint.Port.ToString(),
+                User = entry.Endpoint.User ?? "",
+                Password = entry.Endpoint.Password ?? "",
+                Label = entry.Label.StartsWith("Proxy ", StringComparison.Ordinal) && int.TryParse(entry.Label[6..], out _) ? "" : entry.Label,
+            };
+            _poolRows.Add(imported);
+            _poolGlobal ??= imported;
+        }
+
+        _poolImportText = "";
+        _poolImportError = null;
+        _showPoolImport = false;
+    }
+
+    private void SeedProxy(string saved, string savedMode, string savedPool, string savedEnabled, string savedGlobalId)
+    {
+        _proxySeeded = true;
+        _selectedProxyEnabled = savedEnabled == "1";
+        _selectedProxyMode = string.Equals(savedMode, "pool", StringComparison.OrdinalIgnoreCase) ? "pool" : "global";
+        _poolRows.Clear();
+        _poolGlobal = null;
+        ResetPoolForm();
+        if (Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(savedPool, out var savedEntries, out _))
+        {
+            for (var i = 0; i < savedEntries.Count; i++)
+            {
+                var e = savedEntries[i];
+                _poolRows.Add(new PoolRow
+                {
+                    Type = e.Endpoint.Scheme,
+                    Host = e.Endpoint.Host,
+                    Port = e.Endpoint.Port.ToString(),
+                    User = e.Endpoint.User ?? "",
+                    Password = e.Endpoint.Password ?? "",
+                    Label = e.Label == $"Proxy {i + 1}" ? "" : e.Label,
+                });
+                if (!string.IsNullOrWhiteSpace(savedGlobalId) && e.Id == savedGlobalId)
+                {
+                    _poolGlobal = _poolRows[i];
+                }
+            }
+        }
+
+        if (_poolRows.Count == 0 && !string.IsNullOrWhiteSpace(saved)
+            && Xilium.CefGlue.Headless.Service.ProxyUrl.TryParse(saved, out var legacy, out _))
+        {
+            var migrated = new PoolRow
+            {
+                Type = legacy.Scheme,
+                Host = legacy.Host,
+                Port = legacy.Port.ToString(),
+                User = legacy.User ?? "",
+                Password = legacy.Password ?? "",
+            };
+            _poolRows.Add(migrated);
+            _poolGlobal = migrated;
+        }
+
+    }
+
+    private string DevToolsProfileNormalized => _selectedDevToolsProfile is "full" or "learn" ? _selectedDevToolsProfile : "restricted";
+
+    private string DevToolsProfileShown => _confirmFullDevTools ? "full" : DevToolsProfileNormalized;
+
+    private void OnDevToolsProfileChanged(string value)
+    {
+        if (value == "full" && DevToolsProfileNormalized != "full")
+        {
+            _confirmFullDevTools = true;
+            return;
+        }
+
+        _confirmFullDevTools = false;
+        _selectedDevToolsProfile = value;
+    }
+
+    private void ConfirmFullDevTools()
+    {
+        _selectedDevToolsProfile = "full";
+        _confirmFullDevTools = false;
+    }
+
+    private void CancelFullDevTools() => _confirmFullDevTools = false;
+    private bool _filterBlockFileSeeded;
+    private string _liveApplyMessage;
+    private bool _liveApplyError;
+
+    private Task ApplyLiveSettingsAsync()
+    {
+        var fields = new Dictionary<string, string>
+        {
+            ["FilterMode"] = _selectedFilterMode ?? "Internal",
+            ["FilterEnforce"] = _selectedFilterEnforce ?? "essential",
+            ["FilterAllowHosts"] = _selectedFilterAllow?.Trim() ?? "",
+            ["FilterDenyHosts"] = _selectedFilterDeny?.Trim() ?? "",
+            ["FilterBlockFileScheme"] = _selectedFilterBlockFile ? "" : "0",
+            ["DevToolsProfile"] = DevToolsProfileNormalized,
+            ["RecordingEnabled"] = _selectedRecordingEnabled ? "1" : "0",
+        };
+        void Optional(string key, string value)
+        {
+            if (value != null)
+            {
+                fields[key] = value.Trim();
+            }
+        }
+
+        Optional("RecordingMaxConcurrent", _selectedRecordingMaxConcurrent);
+        Optional("RecordingMaxMinutes", _selectedRecordingMaxMinutes);
+        Optional("RecordingLogDays", _selectedRecordingLogDays);
+        Optional("RecordingWarningAcceptedAt", _recordingWarningAcceptedAt);
+
+        try
+        {
+            BrokerSettingsWriter.Save(AdminDb.Db, fields, null);
+            var saved = Xilium.CefGlue.Broker.Storage.BrokerDb.ReadJson(AdminDb.Db, Xilium.CefGlue.Broker.Storage.BrokerDb.Settings);
+            var revision = Xilium.CefGlue.Broker.Storage.BrokerDb.AsString(saved.GetValueOrDefault(BrokerSettingsWriter.SettingsRevisionKey));
+            _liveApplyError = false;
+            _liveApplyMessage = $"Applied (revision {revision}) at {DateTime.Now:HH:mm:ss} - running workers pick it up within a few seconds.";
+        }
+        catch (Exception ex)
+        {
+            _liveApplyError = true;
+            _liveApplyMessage = $"Not applied: {ex.Message}";
+            Console.WriteLine($"[Admin] Apply failed: {ex.Message}");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static readonly (string Key, string Label, string Help)[] LimitFields =
+    {
+        ("MaxWorkers", "Max workers", "sessions (tenants) running at once; a worker holds all of one tenant's tabs"),
+        ("MaxSleeping", "Max sleeping", "saved sessions kept on disk after their worker stopped (tabs + logins until Manifest TTL)"),
+        ("MaxSpawnsInFlight", "Starting at once", "workers allowed to be starting up at the same moment"),
+        ("MaxWorkersPerIp", "Workers per address", "running sessions one client address may have; 0 = unlimited (suggest 3 on the internet)"),
+        ("NewWorkersPerIpPerMinute", "New per address / min", "new workers one client address may start per minute; 0 = unlimited"),
+    };
+
+    private readonly Dictionary<string, string> _selectedLimits = new();
+    private readonly Dictionary<string, string> _activeLimits = new();
+    private long _casWorkingSetBytes;
+
+    private static string LimitDefault(string key) => key switch
+    {
+        "MaxWorkers" => Math.Max(1, Environment.ProcessorCount).ToString(),
+        "MaxSleeping" => "100",
+        "MaxSpawnsInFlight" => "4",
+        _ => "0",
+    };
+
+    private bool LimitsPending => LimitFields.Any(f =>
+        (Norm(_selectedLimits.GetValueOrDefault(f.Key)) ?? LimitDefault(f.Key)) != (Norm(_activeLimits.GetValueOrDefault(f.Key)) ?? LimitDefault(f.Key)));
+
+    private static long TotalMemoryBytes => GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+
+    private static long SumCasWorkingSet()
+    {
+        long total = 0;
+        foreach (var name in new[] { "Xilium.CefGlue.Headless.Service", "Xilium.CefGlue.BrowserProcess" })
+        {
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName(name))
+            {
+                try { total += process.WorkingSet64; } catch { } finally { process.Dispose(); }
+            }
+        }
+
+        return total;
+    }
 
     private bool SettingsTabHasPending(int tab) => tab switch
     {
         0 => ShowPendingDisableGpuNote || ShowPendingTextureEnableNote || ShowPendingDiskCacheSizeBytesNote || ShowPendingMediaCacheSizeBytesNote
              || ShowPendingDefaultUrlNote || ShowPendingNewPageUseLastUrlNote,
         1 => ShowPendingEncoderNote || ShowPendingEncoderTuningNote || ShowPendingAudioBitrateNote,
-        2 => ShowPendingModeNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote,
+        2 => ShowPendingModeNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote || ShowPendingRequireTicketsNote,
         3 => ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote || SessionTimingError != null,
         4 => PathsNeedRestart || Paths.BrokerStartBlocker != null,
+        7 => LimitsPending,
+        9 => ProxyPending,
         _ => false,
     };
+
+    private bool ProxyPending
+    {
+        get
+        {
+            if (!_proxySeeded)
+            {
+                return false;
+            }
+
+            static string CanonicalPool(string text)
+                => Xilium.CefGlue.Headless.Service.ProxyUrl.TryParsePool(text, out var entries, out _)
+                    ? string.Join("\n", entries.Select(e => e.Endpoint.ToUrl() + " # " + e.Label))
+                    : (text ?? "").Trim();
+
+            if (_selectedProxyEnabled != (_savedProxyEnabled == "1"))
+            {
+                return true;
+            }
+
+            var savedPool = string.Equals(_savedProxyMode, "pool", StringComparison.OrdinalIgnoreCase);
+            if ((_selectedProxyMode == "pool") != savedPool)
+            {
+                return true;
+            }
+
+            return CanonicalPool(ComposedPool()) != CanonicalPool(_savedProxyPool)
+                || GlobalIdNow() != (_savedProxyGlobalId ?? "");
+        }
+    }
 
     private bool HasUnappliedSettings => ShowPendingEncoderNote || ShowPendingEncoderTuningNote || ShowPendingModeNote || ShowPendingAudioBitrateNote || ShowPendingWebRtcPacingBpsNote || ShowPendingWebRtcIceServersNote
         || ShowPendingDisableGpuNote || ShowPendingTextureEnableNote || ShowPendingDiskCacheSizeBytesNote || ShowPendingMediaCacheSizeBytesNote
         || ShowPendingDefaultUrlNote || ShowPendingNewPageUseLastUrlNote
-        || ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote;
+        || ShowPendingSessionTimeoutNote || ShowPendingManifestTtlNote || LimitsPending || ProxyPending || ShowPendingRequireTicketsNote;
 
     protected override void OnInitialized()
     {
@@ -1498,6 +2373,14 @@
         _selectedWebRtcIceServers = null;
         _selectedSessionTimeoutSeconds = null;
         _selectedManifestTtlSeconds = null;
+        _selectedLimits.Clear();
+        _selectedFilterMode = null;
+        _selectedFilterEnforce = null;
+        _selectedFilterAllow = null;
+        _selectedFilterDeny = null;
+        _selectedDevToolsProfile = null;
+        _proxySeeded = false;
+        _filterBlockFileSeeded = false;
         _newPageUseLastUrlSeeded = false;
         _disableGpuSeeded = false;
         _textureEnableSeeded = false;
@@ -1527,6 +2410,7 @@
         var (activeMode, pendingMode) = (Active("ConnectionMode"), Saved("ConnectionMode"));
         var (activeAudioBitrateKbps, pendingAudioBitrateKbps) = (Active("AudioBitrateKbps"), Saved("AudioBitrateKbps"));
         var (activeDisableGpu, pendingDisableGpu) = (Active("DisableGpu"), Saved("DisableGpu"));
+        var (activeRequireTickets, pendingRequireTickets) = (Active("RequireTickets"), Saved("RequireTickets"));
         var (activeTextureEnable, pendingTextureEnable) = (Active("TextureEnable"), Saved("TextureEnable"));
         var (activeDiskCacheSizeBytes, pendingDiskCacheSizeBytes) = (Active("DiskCacheSizeBytes"), Saved("DiskCacheSizeBytes"));
         var (activeMediaCacheSizeBytes, pendingMediaCacheSizeBytes) = (Active("MediaCacheSizeBytes"), Saved("MediaCacheSizeBytes"));
@@ -1568,6 +2452,7 @@
             _activeAudioBitrateKbps = activeAudioBitrateKbps;
             _pendingAudioBitrateKbps = pendingAudioBitrateKbps;
             _activeDisableGpu = activeDisableGpu;
+            _activeRequireTickets = activeRequireTickets;
             _pendingDisableGpu = pendingDisableGpu;
             _activeTextureEnable = activeTextureEnable;
             _pendingTextureEnable = pendingTextureEnable;
@@ -1597,6 +2482,37 @@
             _recordingWarningAcceptedAt ??= Saved("RecordingWarningAcceptedAt");
             _selectedRecordingLogDays ??= Saved("RecordingLogDays") ?? Xilium.CefGlue.Broker.Storage.RecordingLog.DefaultDays.ToString();
             _selectedRecordingMaxMinutes ??= Saved("RecordingMaxMinutes") ?? "30";
+            _selectedFilterMode ??= Saved("FilterMode") ?? "Internal";
+            _selectedFilterEnforce ??= Saved("FilterEnforce") ?? "essential";
+            _selectedFilterAllow ??= Saved("FilterAllowHosts") ?? "";
+            _selectedFilterDeny ??= Saved("FilterDenyHosts") ?? "";
+            _selectedDevToolsProfile ??= Saved("DevToolsProfile") ?? "restricted";
+            if (!_proxySeeded)
+            {
+                SeedProxy(Saved("ProxyGlobal"), Saved("ProxyMode"), Saved("ProxyPool"), Saved("ProxyEnabled"), Saved("ProxyGlobalId"));
+            }
+            _savedProxyEnabled = Saved("ProxyEnabled");
+            _savedProxyMode = Saved("ProxyMode");
+            _savedProxyPool = Saved("ProxyPool");
+            _savedProxyGlobal = Saved("ProxyGlobal");
+            _savedProxyGlobalId = Saved("ProxyGlobalId");
+            if (!_filterBlockFileSeeded)
+            {
+                _selectedFilterBlockFile = Saved("FilterBlockFileScheme") != "0";
+                _filterBlockFileSeeded = true;
+            }
+            foreach (var limit in LimitFields)
+            {
+                _activeLimits[limit.Key] = Active(limit.Key);
+                if (!_selectedLimits.ContainsKey(limit.Key))
+                {
+                    _selectedLimits[limit.Key] = Saved(limit.Key) ?? Active(limit.Key) ?? LimitDefault(limit.Key);
+                }
+            }
+            if (_settingsTab == 7)
+            {
+                _casWorkingSetBytes = SumCasWorkingSet();
+            }
             _activeUseWebRtc = string.Equals(activeUseWebRtc, "1", StringComparison.OrdinalIgnoreCase);
             _activeWebRtcPacingBps = activeWebRtcPacingBps;
             _pendingWebRtcPacingBps = pendingWebRtcPacingBps;
@@ -1622,6 +2538,12 @@
             _selectedManifestTtlSeconds ??= pendingManifestTtlSeconds ?? activeManifestTtlSeconds ?? "900";
             _selectedDiskCacheSizeBytes ??= pendingDiskCacheSizeBytes ?? activeDiskCacheSizeBytes ?? "30000000";
             _selectedMediaCacheSizeBytes ??= pendingMediaCacheSizeBytes ?? activeMediaCacheSizeBytes ?? "30000000";
+
+            if (!_requireTicketsSeeded)
+            {
+                _selectedRequireTickets = (pendingRequireTickets ?? activeRequireTickets ?? "0") == "1";
+                _requireTicketsSeeded = true;
+            }
 
             if (!_disableGpuSeeded)
             {
@@ -1719,6 +2641,7 @@
         Field("WebRtcPacingBps", _selectedWebRtcPacingBps);
         Field("WebRtcIceServers", _selectedWebRtcIceServers);
         Field("DisableGpu", !_disableGpuSeeded ? "" : _selectedDisableGpu ? "1" : "0");
+        Field("RequireTickets", !_requireTicketsSeeded ? null : _selectedRequireTickets ? "1" : "0");
         Field("TextureEnable", _selectedTextureEnable ? "1" : "");
         Field("DiskCacheSizeBytes", _selectedDiskCacheSizeBytes);
         Field("MediaCacheSizeBytes", _selectedMediaCacheSizeBytes);
@@ -1732,6 +2655,21 @@
         Field("RecordingWarningAcceptedAt", _recordingWarningAcceptedAt);
         Field("RecordingLogDays", _selectedRecordingLogDays?.Trim());
         Field("DevToolsEnabled", _selectedDevToolsEnabled ? "1" : "0");
+        foreach (var limit in LimitFields)
+        {
+            Field(limit.Key, _selectedLimits.GetValueOrDefault(limit.Key)?.Trim());
+        }
+        Field("FilterMode", _selectedFilterMode);
+        Field("FilterEnforce", _selectedFilterEnforce);
+        Field("FilterAllowHosts", _selectedFilterAllow?.Trim());
+        Field("FilterDenyHosts", _selectedFilterDeny?.Trim());
+        Field("FilterBlockFileScheme", _selectedFilterBlockFile ? "" : "0");
+        Field("DevToolsProfile", _selectedDevToolsProfile);
+        Field("ProxyEnabled", !_proxySeeded ? null : _selectedProxyEnabled ? "1" : "0");
+        Field("ProxyGlobalId", !_proxySeeded ? null : GlobalIdNow());
+        Field("ProxyGlobal", !_proxySeeded ? null : "");
+        Field("ProxyMode", !_proxySeeded ? null : _selectedProxyMode == "pool" ? "pool" : "");
+        Field("ProxyPool", !_proxySeeded ? null : ComposedPool());
 
         try
         {

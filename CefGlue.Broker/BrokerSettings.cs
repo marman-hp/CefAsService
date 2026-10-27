@@ -11,6 +11,8 @@ namespace Xilium.CefGlue.Broker
 
         public string DisableGpu { get; set; }
 
+        public string RequireTickets { get; set; }
+
         public string TextureEnable { get; set; }
 
         public string DiskCacheSizeBytes { get; set; }
@@ -32,6 +34,33 @@ namespace Xilium.CefGlue.Broker
         public string SessionTimeoutSeconds { get; set; }
 
         public string ManifestTtlSeconds { get; set; }
+
+        public string FilterMode { get; set; }
+
+        public string SettingsRevision { get; set; }
+
+        public string DevToolsProfile { get; set; }
+
+        public string ProxyGlobal { get; set; }
+
+        public string ProxyGlobalId { get; set; }
+
+        public string ProxyEnabled { get; set; }
+
+        public string ProxyMode { get; set; }
+
+        public string ProxyPool { get; set; }
+
+        public string FilterEnforce { get; set; }
+        public string FilterAllowHosts { get; set; }
+        public string FilterDenyHosts { get; set; }
+        public string FilterBlockFileScheme { get; set; }
+
+        public string MaxWorkers { get; set; }
+        public string MaxSleeping { get; set; }
+        public string MaxSpawnsInFlight { get; set; }
+        public string MaxWorkersPerIp { get; set; }
+        public string NewWorkersPerIpPerMinute { get; set; }
 
         public Dictionary<string, string> EncoderSettings { get; set; }
     }

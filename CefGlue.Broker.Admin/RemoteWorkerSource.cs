@@ -70,6 +70,15 @@ namespace Xilium.CefGlue.Broker.Admin
                         CreatedUtc = w.TryGetProperty("createdUtc", out var created) && created.ValueKind == JsonValueKind.String ? created.GetDateTime() : null,
                         ClientIp = w.TryGetProperty("clientIp", out var ip) && ip.ValueKind == JsonValueKind.String ? ip.GetString() : null,
                         ClientOs = w.TryGetProperty("clientOs", out var os) && os.ValueKind == JsonValueKind.String ? os.GetString() : null,
+                        Proxy = w.TryGetProperty("proxy", out var proxy) && proxy.ValueKind == JsonValueKind.Object
+                            ? new WorkerProxyInfo
+                            {
+                                Id = proxy.TryGetProperty("id", out var pid) && pid.ValueKind == JsonValueKind.String ? pid.GetString() : null,
+                                Label = proxy.TryGetProperty("label", out var plabel) && plabel.ValueKind == JsonValueKind.String ? plabel.GetString() : null,
+                                State = proxy.TryGetProperty("state", out var pstate) && pstate.ValueKind == JsonValueKind.String ? pstate.GetString() : null,
+                                Detail = proxy.TryGetProperty("detail", out var pdetail) && pdetail.ValueKind == JsonValueKind.String ? pdetail.GetString() : null,
+                            }
+                            : null,
                     });
                 }
 
