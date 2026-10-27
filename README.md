@@ -53,12 +53,11 @@ first-run prompt.
 
 ## Hardware
 
-- **CPU (server):** OpenH264 and  are software encoders, so video encoding runs entirely on the CPU and
+- **CPU (server):** OpenH264 and VP9 are software encoders, so video encoding runs entirely on the CPU and
   each streaming session runs its own encoder. From our testing: **6 cores minimum, 8 or more
   recommended**, more for several sessions at once or high resolutions. The encoder uses up to
   `min(cores, 8)` threads by default, VP9 up to `min(cores, 6)` (Encoder Settings → *Thread cap*).
-  . JPG mode needs no video
-  encoder but still costs CPU per frame.
+  JPG mode needs no video encoder but still costs CPU per frame.
 - **GPU (server):** not needed. *Disable GPU* is on by default.
 - **Viewer (client):** a browser with hardware H.264 decoding (any normal PC or phone) gives the
   smoothest picture. In a VM or on a machine without a GPU, the browser decodes in software: it
@@ -133,7 +132,7 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 
 Worker, Broker and Admin run on `linux-x64`. The Linux native components (WebRTC, Opus audio, session recorder) ship prebuilt in `lib/`, like the Windows ones. It is a **preview**:
 
-- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.3.1` writes `artifacts/CefAsService-v0.3.1-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). There is no ready-made Linux download yet. The natives are built for glibc 2.35 or newer.
+- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.4.0` writes `artifacts/CefAsService-v0.4.0-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). A ready-made package is on the [Releases](https://github.com/marman-hp/CefAsService/releases) page. The natives are built for glibc 2.35 or newer.
 - **Run it:** the package's `README.txt` has the steps: ASP.NET Core 10 runtime, a few system libraries, `./setup-cef.sh` (downloads CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux, linux64 *minimal*), then `./run.sh`. `get-cef.ps1` is Windows-only.
 - **Transports and features:** WebSocket and WebRTC, Opus audio and session recording are included.
 - **Video:** JPG frames, VP9 (libvpx, included), or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
@@ -147,8 +146,8 @@ Requirements: Linux x64 with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+), th
 ```bash
 git clone https://github.com/marman-hp/CefAsService.git
 cd CefAsService
-./package-linux.sh 0.3.1                       # writes artifacts/CefAsService-v0.3.1-linux-x64.tar.gz (a local build output folder, not part of the repo)
-mkdir ~/cas && tar xzf artifacts/CefAsService-v0.3.1-linux-x64.tar.gz -C ~/cas
+./package-linux.sh 0.4.0                       # writes artifacts/CefAsService-v0.4.0-linux-x64.tar.gz (a local build output folder, not part of the repo)
+mkdir ~/cas && tar xzf artifacts/CefAsService-v0.4.0-linux-x64.tar.gz -C ~/cas
 cd ~/cas/cas-linux
 ./setup-cef.sh                                  # once: downloads CEF 154 for Linux (~326 MB)
 ./run.sh                                        # then open https://localhost:57443/broker
