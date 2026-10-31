@@ -16,7 +16,7 @@ namespace Xilium.CefGlue.Common
         private readonly Func<CefRequestContext> _requestContextFactory;
         private readonly CefGlueHost _host;
 
-        private IAnyTarget _attachedTarget;
+        private IOffScreenTargetHost _attachedTarget;
 
         #region Disposable
 
@@ -43,7 +43,7 @@ namespace Xilium.CefGlue.Common
             _adapter.InternalInitCef();
         }
 
-        public T AttachTarget<T>(T target) where T : IAnyTarget
+        public T AttachTarget<T>(T target) where T : IOffScreenTargetHost
         {
             if (target == null)
             {
@@ -67,21 +67,7 @@ namespace Xilium.CefGlue.Common
         {
             if (CefRuntimeLoader.IsOSREnabled)
             {
-                IOffScreenTargetHost target;
-                if (_attachedTarget != null)
-                {
-                    if (_attachedTarget is not IOffScreenTargetHost offScreenTarget)
-                    {
-                        throw new InvalidOperationException(
-                            $"AttachTarget was given a {_attachedTarget.GetType()}, which only implements ITarget. This browser is running in OSR (offscreen) mode, which needs the fuller IOffScreenTargetHost contract (mouse/keyboard/IME/render-surface-aware) - implement that instead of just ITarget, or run this browser windowed.");
-                    }
-
-                    target = offScreenTarget;
-                }
-                else
-                {
-                    target = CreateOffScreenControlHost();
-                }
+                var target = _attachedTarget ?? CreateOffScreenControlHost();
 
                 return new CefGlueOffScreenAdapter(this, nameof(BaseCefBrowser), target, CreatePopupHost(), _logger, _host, cefRequestContextFactory?.Invoke());
             }

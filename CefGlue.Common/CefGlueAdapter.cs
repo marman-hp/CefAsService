@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -38,6 +39,10 @@ namespace Xilium.CefGlue.Common
         private NativeObjectMethodDispatcher _objectMethodDispatcher;
 
         private readonly NativeObjectRegistry _objectRegistry = new NativeObjectRegistry();
+
+        // Live JS contexts per frame id. A context release is reported both by the renderer message
+        // and by OnFrameDetached (CEF 154 sends both), so only the first release of a created context fires.
+        private readonly Dictionary<string, int> _liveJavascriptContexts = new Dictionary<string, int>();
 
         private volatile bool _disposed;
         private object _disposeLock = new object();
@@ -480,6 +485,12 @@ namespace Xilium.CefGlue.Common
 
         private void HandleJavascriptExecutionEngineContextCreated(CefFrame frame)
         {
+            lock (_liveJavascriptContexts)
+            {
+                var frameId = frame.Identifier;
+                _liveJavascriptContexts.TryGetValue(frameId, out var count);
+                _liveJavascriptContexts[frameId] = count + 1;
+            }
             if (frame.IsMain)
             {
                 IsJavascriptEngineInitialized = true;
@@ -489,6 +500,22 @@ namespace Xilium.CefGlue.Common
 
         private void HandleJavascriptExecutionEngineContextReleased(CefFrame frame)
         {
+            lock (_liveJavascriptContexts)
+            {
+                var frameId = frame.Identifier;
+                if (!_liveJavascriptContexts.TryGetValue(frameId, out var count))
+                {
+                    return; // already released (or never created)
+                }
+                if (count > 1)
+                {
+                    _liveJavascriptContexts[frameId] = count - 1;
+                }
+                else
+                {
+                    _liveJavascriptContexts.Remove(frameId);
+                }
+            }
             if (frame.IsMain)
             {
                 IsJavascriptEngineInitialized = false;

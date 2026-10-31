@@ -6,7 +6,7 @@ using Xilium.CefGlue.Common.Platform;
 
 namespace Xilium.CefGlue.Headless
 {
-    public sealed class HeadlessTarget : IOffScreenTargetHost, IAnyTarget
+    public sealed class HeadlessTarget : IOffScreenTargetHost
     {
         private readonly HeadlessRenderSurface _renderSurface = new HeadlessRenderSurface();
 
