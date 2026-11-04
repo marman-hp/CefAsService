@@ -91,6 +91,15 @@ namespace Xilium.CefGlue
 
         #region cef_version
 
+        public static string CefVersion
+        {
+            get
+            {
+                var plus = libcef.CEF_VERSION.IndexOf('+');
+                return plus < 0 ? libcef.CEF_VERSION : libcef.CEF_VERSION.Substring(0, plus);
+            }
+        }
+
         public static string ChromeVersion
         {
             get
