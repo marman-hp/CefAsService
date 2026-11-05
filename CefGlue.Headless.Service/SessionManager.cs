@@ -15,6 +15,7 @@ namespace Xilium.CefGlue.Headless.Service
     internal sealed class SessionManager
     {
         private readonly Dictionary<string, BrowserSession> _sessions = new();
+        private readonly object _sessionsGate = new();
         private readonly IFrameTransport _frameSocketServer;
 
         private static string DragOpsName(CefDragOperationsMask ops)
@@ -86,6 +87,11 @@ namespace Xilium.CefGlue.Headless.Service
 
         public void HandleMessage(string json)
         {
+            if (RunOnUiThread(() => HandleMessage(json)))
+            {
+                return;
+            }
+
             try
             {
                 using var doc = JsonDocument.Parse(json);
@@ -343,7 +349,10 @@ namespace Xilium.CefGlue.Headless.Service
 
             WireSession(id, session, browser);
 
-            _sessions[id] = session;
+            lock (_sessionsGate)
+            {
+                _sessions[id] = session;
+            }
 
             Navigate(session, url);
 
@@ -428,7 +437,7 @@ namespace Xilium.CefGlue.Headless.Service
                 var host = session.Browser.GetBrowserHost();
                 _ = FaviconFetcher.TryFetchAsDataUriAsync(host, iconUrls).ContinueWith(t =>
                 {
-                    if (t.Result != null && !_disposed && _sessions.TryGetValue(sid, out var s2))
+                    if (t.Result != null && !_disposed && TryGetSession(sid, out var s2))
                     {
                         s2.FaviconUrl = t.Result;
                         PushState();
@@ -511,6 +520,10 @@ namespace Xilium.CefGlue.Headless.Service
                 session.CanGoBack = e.CanGoBack;
                 session.CanGoForward = e.CanGoForward;
                 session.IsLoading = e.IsLoading;
+                if (!e.IsLoading)
+                {
+                    session.HasLoadedOnce = true;
+                }
 
                 if (!e.IsLoading && session.PendingBackForwardResync)
                 {
@@ -693,7 +706,10 @@ namespace Xilium.CefGlue.Headless.Service
 
             WireSession(id, session, browser);
 
-            _sessions[id] = session;
+            lock (_sessionsGate)
+            {
+                _sessions[id] = session;
+            }
             session.Browser.Target.InjectVisibility(false);
 
             LoadEndEventHandler correctSizeOnce = null;
@@ -716,7 +732,10 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
-            _sessions.Remove(id);
+            lock (_sessionsGate)
+            {
+                _sessions.Remove(id);
+            }
             _ = Task.Delay(150).ContinueWith(_ =>
             {
                 if (!_disposed)
@@ -774,9 +793,24 @@ namespace Xilium.CefGlue.Headless.Service
             return null;
         }
 
-        internal bool TryGetSession(string id, out BrowserSession session) => _sessions.TryGetValue(id, out session);
+        internal bool TryGetSession(string id, out BrowserSession session)
+        {
+            lock (_sessionsGate)
+            {
+                return _sessions.TryGetValue(id, out session);
+            }
+        }
 
-        internal int SessionCount => _sessions.Count;
+        internal int SessionCount
+        {
+            get
+            {
+                lock (_sessionsGate)
+                {
+                    return _sessions.Count;
+                }
+            }
+        }
 
         internal string SelectedUrl => _selectedId != null && _sessions.TryGetValue(_selectedId, out var session)
             ? session.CurrentUrl
@@ -786,8 +820,13 @@ namespace Xilium.CefGlue.Headless.Service
         {
             get
             {
-                var tabs = _sessions.Values.Where(s => !s.IsPopup).Select(s => (s.Id, s.CurrentUrl, s.ContextId)).ToList();
-                var selectedId = tabs.Any(t => t.Id == _selectedId) ? _selectedId : null;
+                List<(string Id, string Url, string ContextId)> tabs;
+                lock (_sessionsGate)
+                {
+                    tabs = _sessions.Values.Where(s => !s.IsPopup).Select(s => (s.Id, s.CurrentUrl, s.ContextId)).ToList();
+                }
+                var selected = _selectedId;
+                var selectedId = tabs.Any(t => t.Id == selected) ? selected : null;
                 return (tabs, selectedId);
             }
         }
@@ -799,12 +838,21 @@ namespace Xilium.CefGlue.Headless.Service
                 return;
             }
 
-            var inUse = _sessions.Values.ToList().Select(s => s.ContextId).Where(c => c != null).ToHashSet();
+            HashSet<string> inUse;
+            lock (_sessionsGate)
+            {
+                inUse = _sessions.Values.Select(s => s.ContextId).Where(c => c != null).ToHashSet();
+            }
             _isolation.Prune(inUse);
         }
 
         public void OnFrameClientConnected()
         {
+            if (RunOnUiThread(OnFrameClientConnected))
+            {
+                return;
+            }
+
             if (_selectedId != null && _sessions.TryGetValue(_selectedId, out var selected))
             {
                 selected.H264Encoder?.ForceNextFrameKeyFrame();
@@ -858,7 +906,7 @@ namespace Xilium.CefGlue.Headless.Service
                 await Task.Delay(300);
                 try
                 {
-                    if (!_disposed && _selectedId == sid && _sessions.TryGetValue(sid, out var s2))
+                    if (!_disposed && _selectedId == sid && TryGetSession(sid, out var s2))
                     {
                         KickWithScroll();
                         try { s2.Browser.ExecuteJavaScript(repaintKickJs); } catch { }
@@ -916,6 +964,65 @@ namespace Xilium.CefGlue.Headless.Service
             }
 
             PushState();
+            ScheduleIdleRelease();
+        }
+
+        private const int IdleReleaseDelayMs = 10_000;
+        private System.Threading.Timer _idleReleaseTimer;
+
+        private void ScheduleIdleRelease()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _idleReleaseTimer ??= new System.Threading.Timer(_ =>
+            {
+                if (!RunOnUiThread(ReleaseHiddenTabResources))
+                {
+                    ReleaseHiddenTabResources();
+                }
+            });
+            _idleReleaseTimer.Change(IdleReleaseDelayMs, System.Threading.Timeout.Infinite);
+        }
+
+        private void ReleaseHiddenTabResources()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            BrowserSession[] hidden;
+            lock (_sessionsGate)
+            {
+                hidden = _sessions.Values.Where(s => s.Id != _selectedId && s.Recorder == null).ToArray();
+            }
+
+            foreach (var session in hidden)
+            {
+                lock (session.VideoEncoderGate)
+                {
+                    if (session.H264Encoder != null)
+                    {
+                        session.H264Encoder.Dispose();
+                        session.H264Encoder = null;
+                        session.H264EncoderWidth = -1;
+                        session.H264EncoderHeight = -1;
+                    }
+                }
+
+                if (session.Browser.Target.RenderSurface is HeadlessRenderSurface surface)
+                {
+                    surface.ReleaseIdleBuffers();
+                }
+            }
+
+            if (hidden.Length > 0)
+            {
+                GC.Collect(2, GCCollectionMode.Forced, blocking: false);
+            }
         }
 
         public void NavigateAll(string url)
@@ -2025,14 +2132,14 @@ namespace Xilium.CefGlue.Headless.Service
 
         private void EncodeAndBroadcastH264(string sessionId, HeadlessFrame frame)
         {
-            if (!_sessions.TryGetValue(sessionId, out var session))
+            if (!TryGetSession(sessionId, out var session))
             {
                 return;
             }
 
             lock (session.VideoEncoderGate)
             {
-                if (session.VideoClosed)
+                if (session.VideoClosed || sessionId != _selectedId)
                 {
                     return;
                 }
@@ -2196,6 +2303,11 @@ namespace Xilium.CefGlue.Headless.Service
 
         private void PushState()
         {
+            if (RunOnUiThread(PushState))
+            {
+                return;
+            }
+
             if (_disposed)
             {
                 return;
@@ -2217,7 +2329,7 @@ namespace Xilium.CefGlue.Headless.Service
                         isPopup = s.IsPopup,
                         canGoBack = s.CanGoBack,
                         canGoForward = s.CanGoForward,
-                        isLoading = s.IsLoading,
+                        isLoading = s.IsLoading || !s.HasLoadedOnce,
                         viewMode = s.ViewMode,
                         mobileDevice = s.MobileDeviceId == null ? null : new { id = s.MobileDeviceId, landscape = s.MobileLandscape, zoom = s.MobileZoom, realDpr = s.MobileRealDpr },
                     })
@@ -2268,6 +2380,11 @@ namespace Xilium.CefGlue.Headless.Service
 
         internal void OnLiveSettingsChanged()
         {
+            if (RunOnUiThread(OnLiveSettingsChanged))
+            {
+                return;
+            }
+
             if (_disposed)
             {
                 return;
@@ -2586,6 +2703,7 @@ namespace Xilium.CefGlue.Headless.Service
         public void Dispose()
         {
             _disposed = true;
+            _idleReleaseTimer?.Dispose();
 
             foreach (var session in _sessions.Values)
             {
@@ -2600,7 +2718,44 @@ namespace Xilium.CefGlue.Headless.Service
                 ReleaseRecordingEncoder(session);
             }
 
-            _sessions.Clear();
+            lock (_sessionsGate)
+            {
+                _sessions.Clear();
+            }
+        }
+
+        internal static bool RunOnUiThread(Action action)
+        {
+            if (!CefRuntime.IsInitialized || CefRuntime.CurrentlyOn(CefThreadId.UI))
+            {
+                return false;
+            }
+
+            if (!CefRuntime.PostTask(CefThreadId.UI, new UiTask(action)))
+            {
+                action();
+            }
+            return true;
+        }
+
+        private sealed class UiTask : CefTask
+        {
+            private Action _action;
+
+            public UiTask(Action action) => _action = action;
+
+            protected override void Execute()
+            {
+                try
+                {
+                    _action();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SessionManager] UI-thread task failed: {ex}");
+                }
+                _action = null;
+            }
         }
     }
 }

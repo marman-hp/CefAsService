@@ -132,7 +132,7 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 
 Worker, Broker and Admin run on `linux-x64`. The Linux native components (WebRTC, Opus audio, session recorder) ship prebuilt in `lib/`, like the Windows ones. It is a **preview**:
 
-- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.4.0` writes `artifacts/CefAsService-v0.4.0-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). A ready-made package is on the [Releases](https://github.com/marman-hp/CefAsService/releases) page. The natives are built for glibc 2.35 or newer.
+- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.4.1` writes `artifacts/CefAsService-v0.4.1-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). A ready-made package is on the [Releases](https://github.com/marman-hp/CefAsService/releases) page. The natives are built for glibc 2.35 or newer.
 - **Run it:** the package's `README.txt` has the steps: ASP.NET Core 10 runtime, a few system libraries, `./setup-cef.sh` (downloads CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux, linux64 *minimal*), then `./run.sh`. `get-cef.ps1` is Windows-only.
 - **Transports and features:** WebSocket and WebRTC, Opus audio and session recording are included.
 - **Video:** JPG frames, VP9 (libvpx, included), or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
@@ -146,8 +146,8 @@ Requirements: Linux x64 with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+), th
 ```bash
 git clone https://github.com/marman-hp/CefAsService.git
 cd CefAsService
-./package-linux.sh 0.4.0                       # writes artifacts/CefAsService-v0.4.0-linux-x64.tar.gz (a local build output folder, not part of the repo)
-mkdir ~/cas && tar xzf artifacts/CefAsService-v0.4.0-linux-x64.tar.gz -C ~/cas
+./package-linux.sh 0.4.1                       # writes artifacts/CefAsService-v0.4.1-linux-x64.tar.gz (a local build output folder, not part of the repo)
+mkdir ~/cas && tar xzf artifacts/CefAsService-v0.4.1-linux-x64.tar.gz -C ~/cas
 cd ~/cas/cas-linux
 ./setup-cef.sh                                  # once: downloads CEF 154 for Linux (~326 MB)
 ./run.sh                                        # then open https://localhost:57443/broker
@@ -231,6 +231,16 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 
 ## Release history
 
+### v0.4.1
+
+- Fixed a worker crash when many tabs were added or restored at once (tab list touched from two threads). Viewer messages and tab changes now run on CEF's UI thread.
+- Lower memory with many tabs: a tab hidden for 10 seconds releases its video encoder and frame buffers, and gets them back when selected again (tabs that are recording keep them). Before, every tab that had ever been selected kept about 150 MB.
+- The sidebar shows *Loading…* while a tab is still loading, including restored tabs that have not started yet.
+- Info overlay: *CEF version* now shows the CEF version (154.0.33) instead of the Chromium version.
+- Info overlay: GPU usage on Linux.
+- Fixed `JavascriptContextReleased` firing twice per context under CEF 154.
+- `AttachTarget<T>` now takes any `IOffScreenTargetHost`; the `IAnyTarget` interface is removed.
+
 ### v0.4.0
 
 - **Proxy support:** one proxy table in Admin (own *Proxy* tab) with a master switch, *Global* and *Manual* modes, a per-tab choice in Manual mode with `--isolation-mode-session` (pages opened from a tab inherit its proxy), proxy health in Admin, and logins answered on the server. Changing the proxy applies after a Broker restart, to every page.
@@ -281,3 +291,7 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 - **Source code:** MIT. See `LICENSE` (CefGlue, Xilium/OutSystems) and the `LICENSE` file in each project folder.
 - **Prebuilt components in `lib/`:** free for personal and commercial use, binary only. See `LICENSE-BINARY.txt`.
 - **Third-party native libraries** (libdatachannel, OpenSSL, Opus, libyuv, OpenH264, libvpx, SQLite, LAME) keep their own licenses in the `LICENSE-*` / `COPYING-*` files next to them. CEF/Chromium: BSD.
+
+## Looking for CefGlue OSR and host apps?
+
+CefGlue OSR with desktop host apps (WinUI, WPF, WinForms, Avalonia, GTK4) is here: [marman-hp/CefGlue.OSR](https://github.com/marman-hp/CefGlue.OSR)

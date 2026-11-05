@@ -165,6 +165,15 @@ namespace Xilium.CefGlue.Headless
             return GC.AllocateUninitializedArray<byte>(size);
         }
 
+        internal void ReleaseIdleBuffers()
+        {
+            ReleaseStagingBuffer();
+            lock (_framePoolLock)
+            {
+                _framePool.Clear();
+            }
+        }
+
         private void ReturnFrameBuffer(byte[] buffer)
         {
             lock (_framePoolLock)

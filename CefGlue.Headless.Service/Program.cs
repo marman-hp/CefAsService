@@ -429,7 +429,7 @@ namespace Xilium.CefGlue.Headless.Service
                 string firstSessionId = null;
                 string selectedSessionId = null;
 
-                foreach (var tab in initialTabs)
+                void Restore(InitialTab tab)
                 {
                     var url = string.IsNullOrEmpty(tab.Url) || SessionManager.IsScriptUrl(tab.Url) ? sessions.AddressBarValue : tab.Url;
                     var sessionId = sessions.AddBrowser(url, existingId: tab.Id, existingContextId: tab.ContextId, contextProxy: WorkerProxy.ResolveForRestoredTab(tab.ProxyId));
@@ -441,7 +441,20 @@ namespace Xilium.CefGlue.Headless.Service
                     }
                 }
 
-                sessions.Select(selectedSessionId ?? firstSessionId);
+                Restore(initialTabs[0]);
+                Action restoreRest = () =>
+                {
+                    foreach (var tab in initialTabs.Skip(1))
+                    {
+                        Restore(tab);
+                    }
+
+                    sessions.Select(selectedSessionId ?? firstSessionId);
+                };
+                if (!SessionManager.RunOnUiThread(restoreRest))
+                {
+                    restoreRest();
+                }
             }
             else
             {

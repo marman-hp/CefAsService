@@ -34,6 +34,14 @@ namespace Xilium.CefGlue.Common.Helpers
         protected override (int width, int height) GetAcceleratedFrameSize(CefAcceleratedPaintInfo info)
             => (info.Extra.VisibleRectangle.Width, info.Extra.VisibleRectangle.Height);
 
+        protected void ReleaseStagingBuffer()
+        {
+            lock (_deliveryLock)
+            {
+                _staging.Release();
+            }
+        }
+
         protected override void DeliverSoftwareFrame(IntPtr buffer, int width, int height, CefRectangle[] dirtyRects)
         {
             lock (_deliveryLock)
