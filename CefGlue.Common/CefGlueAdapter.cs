@@ -40,8 +40,6 @@ namespace Xilium.CefGlue.Common
 
         private readonly NativeObjectRegistry _objectRegistry = new NativeObjectRegistry();
 
-        // Live JS contexts per frame id. A context release is reported both by the renderer message
-        // and by OnFrameDetached (CEF 154 sends both), so only the first release of a created context fires.
         private readonly Dictionary<string, int> _liveJavascriptContexts = new Dictionary<string, int>();
 
         private volatile bool _disposed;
@@ -505,7 +503,7 @@ namespace Xilium.CefGlue.Common
                 var frameId = frame.Identifier;
                 if (!_liveJavascriptContexts.TryGetValue(frameId, out var count))
                 {
-                    return; // already released (or never created)
+                    return;
                 }
                 if (count > 1)
                 {

@@ -941,6 +941,10 @@ namespace Xilium.CefGlue.Headless.Service
                     pausedRecorder.Pause();
                     SendRecordingState(previous.Id, "paused", pausedRecorder);
                 }
+                else
+                {
+                    ReleaseVideoEncoder(previous);
+                }
             }
 
             _selectedId = id;
@@ -987,6 +991,20 @@ namespace Xilium.CefGlue.Headless.Service
             _idleReleaseTimer.Change(IdleReleaseDelayMs, System.Threading.Timeout.Infinite);
         }
 
+        private static void ReleaseVideoEncoder(BrowserSession session)
+        {
+            lock (session.VideoEncoderGate)
+            {
+                if (session.H264Encoder != null)
+                {
+                    session.H264Encoder.Dispose();
+                    session.H264Encoder = null;
+                    session.H264EncoderWidth = -1;
+                    session.H264EncoderHeight = -1;
+                }
+            }
+        }
+
         private void ReleaseHiddenTabResources()
         {
             if (_disposed)
@@ -1002,16 +1020,7 @@ namespace Xilium.CefGlue.Headless.Service
 
             foreach (var session in hidden)
             {
-                lock (session.VideoEncoderGate)
-                {
-                    if (session.H264Encoder != null)
-                    {
-                        session.H264Encoder.Dispose();
-                        session.H264Encoder = null;
-                        session.H264EncoderWidth = -1;
-                        session.H264EncoderHeight = -1;
-                    }
-                }
+                ReleaseVideoEncoder(session);
 
                 if (session.Browser.Target.RenderSurface is HeadlessRenderSurface surface)
                 {

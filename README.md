@@ -132,7 +132,7 @@ with an environment variable: `CEFGLUE_BROKER_ADMIN_UI_PORT`, `CEFGLUE_BROKER_AD
 
 Worker, Broker and Admin run on `linux-x64`. The Linux native components (WebRTC, Opus audio, session recorder) ship prebuilt in `lib/`, like the Windows ones. It is a **preview**:
 
-- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.4.1` writes `artifacts/CefAsService-v0.4.1-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). A ready-made package is on the [Releases](https://github.com/marman-hp/CefAsService/releases) page. The natives are built for glibc 2.35 or newer.
+- **Build a package** on Linux (Ubuntu 22.04 or newer, .NET 10 SDK): `./package-linux.sh 0.4.2` writes `artifacts/CefAsService-v0.4.2-linux-x64.tar.gz` (the `artifacts/` folder is local build output, not part of the repository). A ready-made package is on the [Releases](https://github.com/marman-hp/CefAsService/releases) page. The natives are built for glibc 2.35 or newer.
 - **Run it:** the package's `README.txt` has the steps: ASP.NET Core 10 runtime, a few system libraries, `./setup-cef.sh` (downloads CEF **154.0.33+ga03e714+chromium-154.0.8037.94** for Linux, linux64 *minimal*), then `./run.sh`. `get-cef.ps1` is Windows-only.
 - **Transports and features:** WebSocket and WebRTC, Opus audio and session recording are included.
 - **Video:** JPG frames, VP9 (libvpx, included), or H.264 through the OpenH264 plugin (the Cisco `libopenh264` is downloaded for `linux-x64` from *Admin → Encoder Settings*).
@@ -146,8 +146,8 @@ Requirements: Linux x64 with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+), th
 ```bash
 git clone https://github.com/marman-hp/CefAsService.git
 cd CefAsService
-./package-linux.sh 0.4.1                       # writes artifacts/CefAsService-v0.4.1-linux-x64.tar.gz (a local build output folder, not part of the repo)
-mkdir ~/cas && tar xzf artifacts/CefAsService-v0.4.1-linux-x64.tar.gz -C ~/cas
+./package-linux.sh 0.4.2                       # writes artifacts/CefAsService-v0.4.2-linux-x64.tar.gz (a local build output folder, not part of the repo)
+mkdir ~/cas && tar xzf artifacts/CefAsService-v0.4.2-linux-x64.tar.gz -C ~/cas
 cd ~/cas/cas-linux
 ./setup-cef.sh                                  # once: downloads CEF 154 for Linux (~326 MB)
 ./run.sh                                        # then open https://localhost:57443/broker
@@ -230,6 +230,14 @@ non-commercial use. A paid service that streams H.264 may need its own H.264 pat
 - **Proxy:** page traffic goes through the proxy, but Chromium's own background services (component updates and similar) still connect directly, so the server's own IP is not fully hidden. SOCKS5 with a login is not supported (Chromium limitation). Free public proxies are often blocked or sent to CAPTCHAs by sites such as Google.
 
 ## Release history
+
+### v0.4.2
+
+- Fixed getCacheInfo in Broker, The bug caused timeout exceptions when accessing the admin interface while CAS was creating 100 pages simultaneously. In isolation mode, Chromium could generate nearly 4 GB of cache data. 
+- Reduced memory usage when opening multiple tabs: a tab now releases its video encoder as soon as another tab is selected (unless it is currently recording), instead of waiting 10 seconds. Its frame buffers are still released after 10 seconds.
+  For example, when 100 pages are loaded, with 1 active and the remaining 99 in sleep mode, all 99 inactive tabs have their video encoders disposed of. Their DOMs remain active, but they stop producing frames.
+- Admin *Restart* waits until the old worker processes have exited before it starts the Broker again. Before, the new Broker could start while old workers still had `broker.db` open.
+- `CefComponent` and `CefComponentUpdater` (CEF component updater API, CEF 146+) are available in CefGlue.
 
 ### v0.4.1
 

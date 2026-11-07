@@ -2391,7 +2391,8 @@
     private async Task RefreshOnceAsync()
     {
         var workers = await WorkerSource.GetWorkersAsync();
-        var (cacheSizeBytes, cacheTenantCount, standaloneCacheSizeBytes) = await WorkerSource.GetCacheInfoAsync();
+
+        var cacheInfo = await WorkerSource.GetCacheInfoAsync();
 
         BrokerDbView view = null;
         try
@@ -2443,7 +2444,11 @@
                 _reloadPhase = null;
             }
 
-            _workers = workers.OrderBy(w => w.TenantId).ToList();
+            if (workers != null)
+            {
+                _workers = workers.OrderBy(w => w.TenantId).ToList();
+            }
+
             _activeEncoder = active;
             _pendingEncoder = pending;
             _availableEncoders = availableEncoders;
@@ -2522,9 +2527,14 @@
             _pendingSessionTimeoutSeconds = pendingSessionTimeoutSeconds;
             _activeManifestTtlSeconds = activeManifestTtlSeconds;
             _pendingManifestTtlSeconds = pendingManifestTtlSeconds;
-            _cacheSizeBytes = cacheSizeBytes;
-            _cacheTenantCount = cacheTenantCount;
-            _standaloneCacheSizeBytes = standaloneCacheSizeBytes;
+
+            if (cacheInfo is { } c)
+            {
+                _cacheSizeBytes = c.SizeBytes;
+                _cacheTenantCount = c.TenantCount;
+                _standaloneCacheSizeBytes = c.StandaloneSizeBytes;
+            }
+
             _activeWorkerExePath = activeWorkerExePath;
             _activeIsolationMode = activeIsolationMode;
             _isolationSwitch = isolationSwitch;

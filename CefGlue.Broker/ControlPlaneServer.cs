@@ -63,7 +63,7 @@ namespace Xilium.CefGlue.Broker
                     return;
                 }
 
-                _ = HandleConnectionAsync(client);
+                _ = Task.Run(() => HandleConnectionAsync(client));
             }
         }
 
@@ -100,6 +100,32 @@ namespace Xilium.CefGlue.Broker
             catch (Exception)
             {
             }
+        }
+
+        private sealed record CacheInfo(long Size, int Tenants, long Standalone);
+        private static volatile CacheInfo _cacheInfo = new(0, 0, 0);
+        private static DateTime _cacheInfoUtc;
+        private static int _cacheInfoBusy;
+
+        private static CacheInfo GetCachedCacheInfo()
+        {
+            if (DateTime.UtcNow - _cacheInfoUtc > TimeSpan.FromSeconds(60)
+                && Interlocked.CompareExchange(ref _cacheInfoBusy, 1, 0) == 0)
+            {
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        var (s, t) = MeasureWorkerCache();
+                        var (sa, _) = MeasureDirectory(GetStandaloneCacheRoot());
+                        _cacheInfo = new CacheInfo(s, t, sa);
+                        _cacheInfoUtc = DateTime.UtcNow;
+                    }
+                    catch { }
+                    finally { Volatile.Write(ref _cacheInfoBusy, 0); }
+                });
+            }
+            return _cacheInfo;
         }
 
         private static string HandleRequest(string line)
@@ -207,10 +233,10 @@ namespace Xilium.CefGlue.Broker
 
                 case "getCacheInfo":
                 {
-                    var (sizeBytes, tenantCount) = MeasureWorkerCache();
-                    var (standaloneSizeBytes, _) = MeasureDirectory(GetStandaloneCacheRoot());
-                    return JsonSerializer.Serialize(new { ok = true, sizeBytes, tenantCount, standaloneSizeBytes });
-                }
+                        var ci = GetCachedCacheInfo();
+                        return JsonSerializer.Serialize(new { ok = true, sizeBytes = ci.Size, tenantCount = ci.Tenants, standaloneSizeBytes = ci.Standalone });
+
+                    }
 
                 case "clearCache":
                 {
@@ -226,7 +252,7 @@ namespace Xilium.CefGlue.Broker
                         return JsonSerializer.Serialize(new { ok = false, error = "Refusing to clear everything - a standalone CefGlue.Headless.Service.exe is still running (not broker-managed, so Stop above won't touch it) - close it first." });
                     }
 
-                    var (sizeBytesBefore, _) = MeasureWorkerCache();
+                    var sizeBytesBefore = _cacheInfo.Size;
                     var (standaloneSizeBytesBefore, _) = clearEverything ? MeasureDirectory(GetStandaloneCacheRoot()) : (0, 0);
                     var cacheRoot = GetWorkerCacheRoot();
                     var deletedOk = true;
@@ -262,9 +288,12 @@ namespace Xilium.CefGlue.Broker
                         }
                     }
 
-                    return deletedOk
-                        ? JsonSerializer.Serialize(new { ok = true, freedBytes = sizeBytesBefore + standaloneSizeBytesBefore })
-                        : JsonSerializer.Serialize(new { ok = false, error = "Cache folder could not be fully deleted (see Broker's own console) - some files may still be in use." });
+                      _cacheInfo = new CacheInfo(0, 0, 0);
+                      _cacheInfoUtc = default;
+
+                      return deletedOk
+                      ? JsonSerializer.Serialize(new { ok = true, freedBytes = sizeBytesBefore + standaloneSizeBytesBefore })
+                      : JsonSerializer.Serialize(new { ok = false, error = "Cache folder could not be fully deleted (see Broker's own console) - some files may still be in use." });
                 }
 
                 default:
@@ -483,11 +512,18 @@ namespace Xilium.CefGlue.Broker
 
             long totalSize = 0;
             var subfolders = Directory.GetDirectories(root);
-            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = 0,
+                MatchType = MatchType.Win32,
+            };
+            foreach (var fi in new DirectoryInfo(root).EnumerateFiles("*", options))
             {
                 try
                 {
-                    totalSize += new FileInfo(file).Length;
+                    totalSize += fi.Length;
                 }
                 catch
                 {

@@ -385,7 +385,6 @@ namespace Xilium.CefGlue.Common.Helpers
             }
         }
 
-        // amdgpu: whole-GPU load, the closest match to the Windows "GPU Engine" counters. Busiest card wins.
         private static double? GetLinuxGpuBusyPercent()
         {
             try
@@ -411,8 +410,6 @@ namespace Xilium.CefGlue.Common.Helpers
         private static readonly Dictionary<string, long> _lastDrmEngineNs = new Dictionary<string, long>();
         private static long _lastDrmSampleMs;
 
-        // Other drivers (i915, msm, panfrost, ...): DRM fdinfo engine busy time of this process and the CEF
-        // subprocesses, keyed by drm-client-id so a client shared across fds counts once. Reports the busiest engine.
         private static double GetLinuxFdinfoGpuPercent()
         {
             var engineNs = new Dictionary<string, long>();
@@ -465,7 +462,6 @@ namespace Xilium.CefGlue.Common.Helpers
 
                     foreach (var line in lines)
                     {
-                        // e.g. "drm-engine-render:	123456789 ns"
                         if (!line.StartsWith("drm-engine-", StringComparison.Ordinal) || line.StartsWith("drm-engine-capacity", StringComparison.Ordinal))
                         {
                             continue;

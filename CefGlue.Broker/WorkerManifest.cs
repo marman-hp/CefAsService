@@ -298,6 +298,7 @@ namespace Xilium.CefGlue.Broker
                     {
                         Console.WriteLine($"[WorkerManifest] Killing orphan worker not in manifest: pid={proc.Id} (unrecoverable - no tenant/address, would lock the CEF cache dir).");
                         proc.Kill(entireProcessTree: true);
+                        proc.WaitForExit(10_000);
                     }
                     catch (Exception ex)
                     {

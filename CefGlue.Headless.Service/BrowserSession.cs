@@ -44,6 +44,7 @@ namespace Xilium.CefGlue.Headless.Service
         public bool CanGoBack { get; set; }
         public bool CanGoForward { get; set; }
         public bool IsLoading { get; set; }
+
         public bool HasLoadedOnce { get; set; }
 
         public SessionRecorder Recorder { get; set; }

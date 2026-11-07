@@ -68,7 +68,6 @@ namespace Xilium.CefGlue.Common
             if (CefRuntimeLoader.IsOSREnabled)
             {
                 var target = _attachedTarget ?? CreateOffScreenControlHost();
-
                 return new CefGlueOffScreenAdapter(this, nameof(BaseCefBrowser), target, CreatePopupHost(), _logger, _host, cefRequestContextFactory?.Invoke());
             }
             else

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -147,6 +148,7 @@ namespace Xilium.CefGlue.Broker.Admin
 
                 if (brokerPid is not { } pid)
                 {
+                    await WaitForWorkerTreeExitAsync(KillManifestWorkers());
                     return;
                 }
 
@@ -156,11 +158,14 @@ namespace Xilium.CefGlue.Broker.Admin
                 }
                 catch (ArgumentException)
                 {
+                    await WaitForWorkerTreeExitAsync(KillManifestWorkers());
                     return;
                 }
             }
 
             _intentionalStop = true;
+
+            var workerTree = SnapshotWorkerProcesses();
 
             try
             {
@@ -179,8 +184,93 @@ namespace Xilium.CefGlue.Broker.Admin
             {
             }
 
+            await WaitForWorkerTreeExitAsync(workerTree.Concat(KillManifestWorkers()).ToArray());
+
             StartedUtc = null;
             StatusChanged?.Invoke();
+        }
+
+        private static Process[] SnapshotWorkerProcesses()
+        {
+            return WorkerProcessNames.SelectMany(Process.GetProcessesByName).ToArray();
+        }
+
+        private static readonly string[] WorkerProcessNames = { "Xilium.CefGlue.Headless.Service", "Xilium.CefGlue.BrowserProcess" };
+
+        private static Process[] KillManifestWorkers()
+        {
+            List<long> pids;
+            try
+            {
+                pids = AdminDb.Db.Query("SELECT pid FROM tenants WHERE pid > 0", r => r.GetInt64(0));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Admin] StopAsync: could not read worker pids from broker.db ({ex.Message}) - adopted workers not stopped.");
+                return Array.Empty<Process>();
+            }
+
+            var killed = new List<Process>();
+            foreach (var pid in pids)
+            {
+                Process process;
+                try
+                {
+                    process = Process.GetProcessById((int)pid);
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (!process.HasExited && string.Equals(process.ProcessName, WorkerProcessNames[0], StringComparison.OrdinalIgnoreCase))
+                    {
+                        process.Kill(entireProcessTree: true);
+                        Console.WriteLine($"[Admin] StopAsync: killed worker pid={pid} recorded in broker.db.");
+                        killed.Add(process);
+                        continue;
+                    }
+                }
+                catch (Exception)
+                {
+                }
+
+                process.Dispose();
+            }
+
+            return killed.ToArray();
+        }
+
+        private static async Task WaitForWorkerTreeExitAsync(Process[] processes)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try
+            {
+                foreach (var process in processes)
+                {
+                    try
+                    {
+                        await process.WaitForExitAsync(timeout.Token);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                var alive = processes.Count(p => { try { return !p.HasExited; } catch { return false; } });
+                Console.WriteLine($"[Admin] StopAsync: {alive} worker process(es) still alive 15s after Kill() - starting anyway.");
+            }
+            finally
+            {
+                foreach (var process in processes)
+                {
+                    process.Dispose();
+                }
+            }
         }
 
         public async Task RestartAsync()

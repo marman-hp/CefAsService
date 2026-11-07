@@ -84,9 +84,10 @@ namespace Xilium.CefGlue.Broker.Admin
 
                 return workers;
             }
-            catch
+            catch (Exception ex)
             {
-                return Array.Empty<WorkerInfo>();
+                Program.LogError($"listWorkers failed: {ex.Message}");
+                return null;
             }
         }
 
@@ -105,24 +106,16 @@ namespace Xilium.CefGlue.Broker.Admin
             }
         }
 
-        public async Task<(long SizeBytes, int TenantCount, long StandaloneSizeBytes)> GetCacheInfoAsync()
+        public async Task<(long SizeBytes, int TenantCount, long StandaloneSizeBytes)?> GetCacheInfoAsync()
         {
             try
             {
                 var response = await SendAsync(new { op = "getCacheInfo" });
-                if (!response.GetProperty("ok").GetBoolean())
-                {
-                    return (0, 0, 0);
-                }
-                var sizeBytes = response.GetProperty("sizeBytes").GetInt64();
-                var tenantCount = response.GetProperty("tenantCount").GetInt32();
-                var standaloneSizeBytes = response.TryGetProperty("standaloneSizeBytes", out var s) ? s.GetInt64() : 0;
-                return (sizeBytes, tenantCount, standaloneSizeBytes);
+                if (!response.GetProperty("ok").GetBoolean()) return null;
+                var standalone = response.TryGetProperty("standaloneSizeBytes", out var s) ? s.GetInt64() : 0;
+                return (response.GetProperty("sizeBytes").GetInt64(), response.GetProperty("tenantCount").GetInt32(), standalone);
             }
-            catch
-            {
-                return (0, 0, 0);
-            }
+            catch { return null; }
         }
 
         public async Task<(bool Success, string Error, long FreedBytes)> ClearCacheAsync(bool clearEverything = false)
